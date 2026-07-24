@@ -2,6 +2,7 @@ import logging
 import sqlite3
 import asyncio
 import re
+import os
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -20,8 +21,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot token and Admin ID
-BOT_TOKEN = "8674559116:AAFuZWJJLVY-qMAHBSr7Z6om686b1zeGxKc"
+# Bot token
+BOT_TOKEN = os.environ.get('BOT_TOKEN', "8674559116:AAFuZWJJLVY-qMAHBSr7Z6om686b1zeGxKc")
 ADMIN_ID = 8694942406
 
 # CPM Data
@@ -36,8 +37,6 @@ CPM_DATA = {
     'friends': 0,
     'id': 'VY704074',
     'rank': 'Legendary',
-    'cars': 15,
-    'houses': 3,
     'features': {
         'w16': False,
         'no_dmg': False,
@@ -52,11 +51,11 @@ CPM_DATA = {
     }
 }
 
-# Cache for faster database access
+# Cache
 cache = {}
 
 def init_database():
-    """Initialize the SQLite database"""
+    """Initialize SQLite database"""
     conn = sqlite3.connect('Licenci.db')
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS licenci 
@@ -66,57 +65,66 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_odobren ON licenci(odobren)')
     conn.commit()
     conn.close()
+    logger.info("Database initialized")
 
 init_database()
 
 async def get_user_data(user_id):
-    """Get user data from database with caching"""
-    if user_id in cache:
-        return cache[user_id]
-    
-    conn = sqlite3.connect('Licenci.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT data, odobren, email, password, username FROM licenci WHERE id = ?', (str(user_id),))
-    result = cursor.fetchone()
-    conn.close()
-    
-    if result:
-        cache[user_id] = result
-        return result
+    try:
+        if user_id in cache:
+            return cache[user_id]
+        
+        conn = sqlite3.connect('Licenci.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT data, odobren, email, password, username FROM licenci WHERE id = ?', (str(user_id),))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            cache[user_id] = result
+            return result
+    except Exception as e:
+        logger.error(f"Database error: {e}")
     return None
 
 async def update_user_data(user_id, data, odobren, email=None, password=None, username=None):
-    """Update or insert user data"""
-    conn = sqlite3.connect('Licenci.db')
-    cursor = conn.cursor()
-    
-    if email and password and username:
-        cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren, email, password, username) VALUES (?, ?, ?, ?, ?, ?)', 
-                      (str(user_id), data, odobren, email, password, username))
-    else:
-        cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren) VALUES (?, ?, ?)', 
-                      (str(user_id), data, odobren))
-    
-    conn.commit()
-    conn.close()
-    
-    if user_id in cache:
-        del cache[user_id]
+    try:
+        conn = sqlite3.connect('Licenci.db')
+        cursor = conn.cursor()
+        
+        if email and password and username:
+            cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren, email, password, username) VALUES (?, ?, ?, ?, ?, ?)', 
+                          (str(user_id), data, odobren, email, password, username))
+        else:
+            cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren) VALUES (?, ?, ?)', 
+                          (str(user_id), data, odobren))
+        
+        conn.commit()
+        conn.close()
+        
+        if user_id in cache:
+            del cache[user_id]
+    except Exception as e:
+        logger.error(f"Database error: {e}")
 
 async def delete_user(user_id):
-    """Delete user from database"""
-    conn = sqlite3.connect('Licenci.db')
-    cursor = conn.cursor()
-    cursor.execute('DELETE FROM licenci WHERE id = ?', (str(user_id),))
-    conn.commit()
-    conn.close()
-    
-    if user_id in cache:
-        del cache[user_id]
+    try:
+        conn = sqlite3.connect('Licenci.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM licenci WHERE id = ?', (str(user_id),))
+        conn.commit()
+        conn.close()
+        
+        if user_id in cache:
+            del cache[user_id]
+    except Exception as e:
+        logger.error(f"Database error: {e}")
+
+# ============ COMMAND HANDLERS ============
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
-    user = update.message.from_user if update.message else update.callback_query.from_user
+    user = update.effective_user
     username = user.username if user.username else "N/A"
 
     # Admin panel
@@ -133,13 +141,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📊 Statistics", callback_data="admin_stats")],
             [InlineKeyboardButton("🔙 Back", callback_data="main_menu")]
         ]
-        if update.message:
-            await update.message.reply_text(text=admin_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        elif update.callback_query:
-            await update.callback_query.message.reply_text(text=admin_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await update.message.reply_text(text=admin_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
 
-    # Get user data
+    # Check if user is approved
     result = await get_user_data(str(user.id))
     
     now = datetime.now()
@@ -166,7 +171,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if user has pending request
         result2 = await get_user_data(str(user.id))
         if result2 and result2[1] == 0:
-            # Already waiting
             wait_msg = (
                 "⏳ **Waiting for Approval**\n"
                 "━━━━━━━━━━━━━━━━━━━\n"
@@ -175,13 +179,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "━━━━━━━━━━━━━━━━━━━"
             )
             keyboard = [[InlineKeyboardButton("🔄 Check Status", callback_data="proveri_status")]]
-            if update.message:
-                await update.message.reply_text(text=wait_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-            elif update.callback_query:
-                await update.callback_query.message.reply_text(text=wait_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+            await update.message.reply_text(text=wait_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
             return
         else:
-            # New user
             welcome_text = (
                 "**CPM_AJHAN_BOT v5.0**\n"
                 "bot\n\n"
@@ -198,14 +198,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             keyboard = [[InlineKeyboardButton("🔑 Sign In", callback_data="cpm_signin")]]
-            
-            if update.message:
-                await update.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-            elif update.callback_query:
-                await update.callback_query.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+            await update.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
             return
 
-    # Allowed user - show dashboard
+    # Show dashboard - WITHOUT Cars and Houses buttons
     dashboard_text = (
         "**CPM_AJHAN_BOT v5.0**\n"
         "bot\n\n"
@@ -224,40 +220,36 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{CPM_DATA['levels']}/900 levels done ⭐\n"
         f"{CPM_DATA['wheels']} wheels\n"
         f"{CPM_DATA['animations']} animations\n"
-        f"{CPM_DATA['friends']} friends\n"
-        f"🚗 {CPM_DATA['cars']} cars\n"
-        f"🏠 {CPM_DATA['houses']} houses\n\n"
+        f"{CPM_DATA['friends']} friends\n\n"
         "- Select an option below:"
     )
     
     keyboard = [
         [InlineKeyboardButton("💰 Money", callback_data="menu_money"), InlineKeyboardButton("🪙 Coins", callback_data="menu_coins")],
-        [InlineKeyboardButton("⚡ Features", callback_data="menu_features"), InlineKeyboardButton("🏎️ Cars", callback_data="menu_cars")],
-        [InlineKeyboardButton("🏠 Houses", callback_data="menu_houses"), InlineKeyboardButton("👑 Rank", callback_data="menu_rank")],
+        [InlineKeyboardButton("⚡ Features", callback_data="menu_features"), InlineKeyboardButton("👑 Rank", callback_data="menu_rank")],
         [InlineKeyboardButton("🔄 Refresh", callback_data="refresh_account")],
         [InlineKeyboardButton("🚪 Sign Out", callback_data="sign_out")]
     ]
     
-    if update.message:
-        await update.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-    elif update.callback_query:
-        await update.callback_query.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    await update.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+# ============ MENU HANDLERS ============
 
 async def menu_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Money menu"""
+    """Money menu - max $50M"""
     query = update.callback_query
     await query.answer()
     
     text = (
         "**💰 MONEY**\n\n"
-        f"Max: ${CPM_DATA['money']:,}\n"
+        f"Max: $50,000,000\n"
         "━━━━━━━━━━━━━━━━━━━\n"
         "Select amount or enter custom:"
     )
     
     keyboard = [
         [InlineKeyboardButton("$1M", callback_data="add_money_1m"), InlineKeyboardButton("$5M", callback_data="add_money_5m"), InlineKeyboardButton("$10M", callback_data="add_money_10m")],
-        [InlineKeyboardButton("$25M", callback_data="add_money_25m"), InlineKeyboardButton("$50M ★", callback_data="add_money_50m"), InlineKeyboardButton("$100M", callback_data="add_money_100m")],
+        [InlineKeyboardButton("$25M", callback_data="add_money_25m"), InlineKeyboardButton("$50M ★", callback_data="add_money_50m")],
         [InlineKeyboardButton("💰 Custom Amount", callback_data="custom_money")],
         [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]
     ]
@@ -265,20 +257,20 @@ async def menu_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def menu_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Coins menu"""
+    """Coins menu - max 500K"""
     query = update.callback_query
     await query.answer()
     
     text = (
         "**🪙 COINS**\n\n"
-        f"Max: {CPM_DATA['coins']:,}\n"
+        "Max: 500,000\n"
         "━━━━━━━━━━━━━━━━━━━\n"
         "Select amount or enter custom:"
     )
     
     keyboard = [
         [InlineKeyboardButton("10K", callback_data="add_coins_10k"), InlineKeyboardButton("50K", callback_data="add_coins_50k"), InlineKeyboardButton("100K", callback_data="add_coins_100k")],
-        [InlineKeyboardButton("250K", callback_data="add_coins_250k"), InlineKeyboardButton("500K ★", callback_data="add_coins_500k"), InlineKeyboardButton("1M", callback_data="add_coins_1m")],
+        [InlineKeyboardButton("250K", callback_data="add_coins_250k"), InlineKeyboardButton("500K ★", callback_data="add_coins_500k")],
         [InlineKeyboardButton("🪙 Custom Amount", callback_data="custom_coins")],
         [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]
     ]
@@ -286,13 +278,12 @@ async def menu_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def menu_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Features menu"""
+    """Features menu - samo UNLOCK ALL"""
     query = update.callback_query
     await query.answer()
     
-    # Get feature status
     features = CPM_DATA['features']
-    feature_status = {
+    status = {
         'w16': '✅' if features['w16'] else '⬜',
         'no_dmg': '✅' if features['no_dmg'] else '⬜',
         'smoke': '✅' if features['smoke'] else '⬜',
@@ -308,17 +299,17 @@ async def menu_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "**⚡ FEATURES**\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        "Select a feature or UNLOCK ALL:\n"
-        f"{feature_status['w16']} W16\n"
-        f"{feature_status['no_dmg']} No Dmg\n"
-        f"{feature_status['smoke']} Smoke\n"
-        f"{feature_status['wheels']} Wheels\n"
-        f"{feature_status['fuel']} Fuel\n"
-        f"{feature_status['horns']} Horns\n"
-        f"{feature_status['anims']} Anims\n"
-        f"{feature_status['houses']} Houses\n"
-        f"{feature_status['rank']} Rank\n"
-        f"{feature_status['all_cars']} All Cars\n"
+        "Select a feature or UNLOCK ALL:\n\n"
+        f"{status['w16']} W16\n"
+        f"{status['no_dmg']} No Dmg\n"
+        f"{status['smoke']} Smoke\n"
+        f"{status['wheels']} Wheels\n"
+        f"{status['fuel']} Fuel\n"
+        f"{status['horns']} Horns\n"
+        f"{status['anims']} Anims\n"
+        f"{status['houses']} Houses\n"
+        f"{status['rank']} Rank\n"
+        f"{status['all_cars']} All Cars\n"
         f"📊 Levels: {CPM_DATA['levels']}/900 ⭐"
     )
     
@@ -338,10 +329,7 @@ async def feature_unlock_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
     for key in CPM_DATA['features']:
         CPM_DATA['features'][key] = True
     
-    # Update stats
     CPM_DATA['levels'] = 900
-    CPM_DATA['cars'] = 50
-    CPM_DATA['houses'] = 10
     CPM_DATA['rank'] = 'Legendary ★'
     
     success_text = (
@@ -364,50 +352,6 @@ async def feature_unlock_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]
     await query.edit_message_text(text=success_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def menu_cars(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cars menu"""
-    query = update.callback_query
-    await query.answer()
-    
-    text = (
-        "**🚗 CARS**\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        f"Total cars: {CPM_DATA['cars']}\n\n"
-        "Select option:"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("🚗 Audi R8", callback_data="car_audi"), InlineKeyboardButton("🚗 BMW M4", callback_data="car_bmw")],
-        [InlineKeyboardButton("🚗 Mercedes AMG", callback_data="car_mercedes"), InlineKeyboardButton("🚗 Porsche 911", callback_data="car_porsche")],
-        [InlineKeyboardButton("🚗 Lamborghini", callback_data="car_lambo"), InlineKeyboardButton("🚗 Ferrari", callback_data="car_ferrari")],
-        [InlineKeyboardButton("🔓 Unlock All", callback_data="car_all")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]
-    ]
-    
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def menu_houses(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Houses menu"""
-    query = update.callback_query
-    await query.answer()
-    
-    text = (
-        "**🏠 HOUSES**\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        f"Houses: {CPM_DATA['houses']}\n\n"
-        "Select option:"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("🏠 Small House", callback_data="house_small")],
-        [InlineKeyboardButton("🏠 Medium House", callback_data="house_medium")],
-        [InlineKeyboardButton("🏰 Big House ★", callback_data="house_big")],
-        [InlineKeyboardButton("🔓 Unlock All", callback_data="house_all")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]
-    ]
-    
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def menu_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rank menu"""
@@ -434,7 +378,6 @@ async def menu_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def refresh_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Refresh account"""
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("🔄 **Refreshing account...**", parse_mode='Markdown')
@@ -442,7 +385,6 @@ async def refresh_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start(update, context)
 
 async def sign_out(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sign out user"""
     query = update.callback_query
     await query.answer()
     
@@ -452,13 +394,11 @@ async def sign_out(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("🚪 **Signed out successfully!**\n\nType /start to sign in again.", parse_mode='Markdown')
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Return to main menu"""
     query = update.callback_query
     await query.answer()
     await start(update, context)
 
 async def cpm_signin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """CPM Sign in"""
     query = update.callback_query
     await query.answer()
     
@@ -468,14 +408,45 @@ async def cpm_signin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     context.user_data['state'] = 'WAIT_EMAIL'
 
+# ============ MONEY/COINS HANDLERS (Брзи одговори) ============
+
+async def handle_money_add(update: Update, context: ContextTypes.DEFAULT_TYPE, amount):
+    query = update.callback_query
+    await query.answer()
+    
+    CPM_DATA['money'] += amount
+    await query.edit_message_text(
+        f"✅ **${amount:,} added!**\n"
+        f"💰 New balance: ${CPM_DATA['money']:,}",
+        parse_mode='Markdown'
+    )
+    await asyncio.sleep(1)
+    await menu_money(update, context)
+
+async def handle_coins_add(update: Update, context: ContextTypes.DEFAULT_TYPE, amount):
+    query = update.callback_query
+    await query.answer()
+    
+    CPM_DATA['coins'] += amount
+    await query.edit_message_text(
+        f"✅ **{amount:,} coins added!**\n"
+        f"🪙 New balance: {CPM_DATA['coins']:,}",
+        parse_mode='Markdown'
+    )
+    await asyncio.sleep(1)
+    await menu_coins(update, context)
+
+# ============ MESSAGE HANDLER ============
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle text messages"""
     state = context.user_data.get('state')
     text = update.message.text
-    user = update.message.from_user
+    user = update.effective_user
     username = user.username if user.username else "N/A"
 
-    # Custom money
+    logger.info(f"Message from {username}: {text} (state: {state})")
+
+    # Custom Money
     if state == 'CUSTOM_MONEY':
         try:
             value = text.strip().lower()
@@ -487,18 +458,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 amount = int(value)
             
-            admin_msg = (
-                f"💰 **Money Request**\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 @{username}\n"
-                f"🆔 `{user.id}`\n"
-                f"💵 `${amount:,}`\n"
-                f"⏰ {datetime.now().strftime('%H:%M')}\n"
-                f"━━━━━━━━━━━━━━━━━━━"
-            )
+            if amount > 50000000:
+                await update.message.reply_text("❌ Max is $50M!")
+                return
             
-            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
-            await update.message.reply_text(f"✅ **Request for ${amount:,} sent!**", parse_mode='Markdown')
+            CPM_DATA['money'] += amount
+            await update.message.reply_text(
+                f"✅ **${amount:,} added!**\n"
+                f"💰 New balance: ${CPM_DATA['money']:,}",
+                parse_mode='Markdown'
+            )
             
         except:
             await update.message.reply_text("❌ Enter valid number! Example: 10m, 500k, or 1000000")
@@ -506,7 +475,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['state'] = None
         return
 
-    # Custom coins
+    # Custom Coins
     if state == 'CUSTOM_COINS':
         try:
             value = text.strip().lower()
@@ -518,18 +487,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 amount = int(value)
             
-            admin_msg = (
-                f"🪙 **Coins Request**\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 @{username}\n"
-                f"🆔 `{user.id}`\n"
-                f"🪙 {amount:,} coins\n"
-                f"⏰ {datetime.now().strftime('%H:%M')}\n"
-                f"━━━━━━━━━━━━━━━━━━━"
-            )
+            if amount > 500000:
+                await update.message.reply_text("❌ Max is 500K coins!")
+                return
             
-            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
-            await update.message.reply_text(f"✅ **Request for {amount:,} coins sent!**", parse_mode='Markdown')
+            CPM_DATA['coins'] += amount
+            await update.message.reply_text(
+                f"✅ **{amount:,} coins added!**\n"
+                f"🪙 New balance: {CPM_DATA['coins']:,}",
+                parse_mode='Markdown'
+            )
             
         except:
             await update.message.reply_text("❌ Enter valid number! Example: 100k or 50000")
@@ -537,7 +504,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['state'] = None
         return
 
-    # Remove user
     if state == 'WAIT_REMOVE_USER':
         try:
             target_user_id = int(text)
@@ -556,60 +522,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Enter valid ID!")
         return
 
-    # Custom time
-    if state == 'WAIT_CUSTOM_TIME':
-        target_user_id = context.user_data.get('custom_target_user')
-        value = text.strip().lower()
-        
-        try:
-            if value.endswith('h'):
-                hours = int(value[:-1])
-                if 1 <= hours <= 24:
-                    expiry = (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
-                    time_text = f"{hours} hours"
-                else:
-                    await update.message.reply_text("❌ Enter 1h to 24h!")
-                    return
-            else:
-                days = int(value)
-                if 1 <= days <= 30:
-                    expiry = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-                    time_text = f"{days} days"
-                else:
-                    await update.message.reply_text("❌ Enter 1 to 30 days!")
-                    return
-            
-            await update_user_data(str(target_user_id), expiry, 1)
-            
-            result = await get_user_data(str(target_user_id))
-            if result:
-                email, password, username_db = result[2], result[3], result[4]
-                admin_notify = (
-                    f"✅ **User Approved!**\n"
-                    f"━━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 @{username_db or 'N/A'}\n"
-                    f"🆔 `{target_user_id}`\n"
-                    f"📧 {email or 'None'}\n"
-                    f"🔑 {password or 'None'}\n"
-                    f"📅 {time_text}\n"
-                    f"━━━━━━━━━━━━━━━━━━━"
-                )
-                await update.message.reply_text(admin_notify, parse_mode='Markdown')
-            else:
-                await update.message.reply_text(f"✅ Granted {time_text} for {target_user_id}!")
-            
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=f"✅ **You are approved!** Type /start to enter."
-            )
-            
-            context.user_data['state'] = None
-            
-        except:
-            await update.message.reply_text("❌ Enter valid number! Example: 5h or 10")
-        return
-
-    # Email
     if state == 'WAIT_EMAIL':
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         if not re.match(email_pattern, text):
@@ -624,7 +536,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['state'] = 'WAIT_PASSWORD'
         return
 
-    # Password
     if state == 'WAIT_PASSWORD':
         password = text
         email = context.user_data.get('email')
@@ -669,30 +580,104 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         return
-    
+
     # Other messages - send to admin
-    else:
-        admin_msg = (
-            f"📝 **User Message**\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"👤 @{username}\n"
-            f"🆔 `{user.id}`\n"
-            f"📩 {text}\n"
-            f"⏰ {datetime.now().strftime('%H:%M')}\n"
-            f"━━━━━━━━━━━━━━━━━━━"
-        )
-        
-        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
-        await update.message.reply_text("✅ **Message sent to admin!**", parse_mode='Markdown')
+    admin_msg = (
+        f"📝 **User Message**\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 @{username}\n"
+        f"🆔 `{user.id}`\n"
+        f"📩 {text}\n"
+        f"⏰ {datetime.now().strftime('%H:%M')}\n"
+        f"━━━━━━━━━━━━━━━━━━━"
+    )
+    
+    await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
+    await update.message.reply_text("✅ **Message sent to admin!**", parse_mode='Markdown')
+
+# ============ CALLBACK HANDLER ============
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle callback queries"""
     query = update.callback_query
     await query.answer()
     data = query.data
     user = query.from_user
 
-    # Check status
+    logger.info(f"Callback: {data} from {user.id}")
+
+    # === MONEY ADD ===
+    if data == "add_money_1m":
+        await handle_money_add(update, context, 1000000)
+        return
+    if data == "add_money_5m":
+        await handle_money_add(update, context, 5000000)
+        return
+    if data == "add_money_10m":
+        await handle_money_add(update, context, 10000000)
+        return
+    if data == "add_money_25m":
+        await handle_money_add(update, context, 25000000)
+        return
+    if data == "add_money_50m":
+        await handle_money_add(update, context, 50000000)
+        return
+
+    # === COINS ADD ===
+    if data == "add_coins_10k":
+        await handle_coins_add(update, context, 10000)
+        return
+    if data == "add_coins_50k":
+        await handle_coins_add(update, context, 50000)
+        return
+    if data == "add_coins_100k":
+        await handle_coins_add(update, context, 100000)
+        return
+    if data == "add_coins_250k":
+        await handle_coins_add(update, context, 250000)
+        return
+    if data == "add_coins_500k":
+        await handle_coins_add(update, context, 500000)
+        return
+
+    # === CUSTOM ===
+    if data == "custom_money":
+        await query.edit_message_text(
+            "💰 **Enter custom amount:**\n"
+            "Example: 10m, 500k, or 1000000",
+            parse_mode='Markdown'
+        )
+        context.user_data['state'] = 'CUSTOM_MONEY'
+        return
+    
+    if data == "custom_coins":
+        await query.edit_message_text(
+            "🪙 **Enter custom amount:**\n"
+            "Example: 100k or 50000",
+            parse_mode='Markdown'
+        )
+        context.user_data['state'] = 'CUSTOM_COINS'
+        return
+
+    # === RANK ===
+    rank_map = {
+        "rank_bronze": "Bronze",
+        "rank_silver": "Silver",
+        "rank_gold": "Gold",
+        "rank_platinum": "Platinum",
+        "rank_diamond": "Diamond",
+        "rank_legendary": "Legendary ★"
+    }
+    
+    if data in rank_map:
+        CPM_DATA['rank'] = rank_map[data]
+        await query.edit_message_text(
+            f"✅ **Rank changed to: {rank_map[data]}**",
+            parse_mode='Markdown'
+        )
+        await asyncio.sleep(0.5)
+        await menu_rank(update, context)
+        return
+
     if data == "proveri_status":
         result = await get_user_data(str(user.id))
         
@@ -711,12 +696,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ No request found. Type /start.", parse_mode='Markdown')
             return
 
-    # Handle feature unlocks
     if data == "feature_unlock_all":
         await feature_unlock_all(update, context)
         return
 
-    # Admin commands
     if data == "admin_panel":
         await start(update, context)
         return
@@ -770,7 +753,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
 
-    # License management
     if data.startswith("lic:"):
         parts = data.split(":")
         action = parts[1]
@@ -816,4 +798,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menu_handlers = {
         "menu_money": menu_money,
         "menu_coins": menu_coins,
-        "menu_features": menu
+        "menu_features": menu_features,
+        "menu_rank": menu_rank,
+        "refresh_account": refresh_account,
+        "sign_out": sign_out,
+        "main_menu": main_menu,
+        "cpm_signin": cpm_signin,
+    }
+    
+    if data in menu_handlers:
+        await menu_handlers[data](update, context)
+        return
+
+# ============ MAIN ============
+
+def main():
+    """Main function to run the bot"""
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    logger.info("Bot started...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
