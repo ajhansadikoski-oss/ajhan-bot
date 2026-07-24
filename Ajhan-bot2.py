@@ -49,7 +49,7 @@ inicijaliziraj_baza()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user if update.message else update.callback_query.from_user
-    username = user.username if user.username else "None"
+    username = user.username if user.username else "N/A"
 
     # АКО Е АДМИН - ПРИКАЖИ АДМИН МЕНИ
     if user.id == ADMIN_ID:
@@ -98,33 +98,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     dozvolen = False
 
     if not dozvolen:
-        # Провери дали корисникот има испратено барање
-        conn = sqlite3.connect('Licenci.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT odobren FROM licenci WHERE id = ?', (str(user.id),))
-        postoi = cursor.fetchone()
-        conn.close()
+        welcome_text = (
+            "**CPM_AJHAN_BOT**\n"
+            "bot\n\n"
+            "---\n"
+            "**CPM TOOL BOX v4.0**\n"
+            "---\n"
+            f"**WELCOME**\n"
+            f"@{username}\n"
+            f"ID {user.id}\n"
+            f"{sega.strftime('%d %b %Y • %I:%M %p')}\n\n"
+            "- Sign in with your CPM credentials\n"
+            "**05:10**\n\n"
+            "**Sign In**"
+        )
         
-        if postoi and postoi[0] == 0:
-            # Корисникот веќе има испратено барање - покажи чекање
-            cekaj_poraka = (
-                "⏳ **Чекање на одобрение**\n"
-                "━━━━━━━━━━━━━━━━━━━\n"
-                "📧 Вашите податоци се испратени до администраторот.\n"
-                "⏱️ Ве молиме почекајте **5-10 минути**.\n"
-                "✅ Кликнете на копчето за да проверите дали сте одобрени.\n"
-                "━━━━━━━━━━━━━━━━━━━"
-            )
-            keyboard = [[InlineKeyboardButton("🔄 Провери статус", callback_data="proveri_status")]]
-            if update.message:
-                await update.message.reply_text(text=cekaj_poraka, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-            elif update.callback_query:
-                await update.callback_query.message.reply_text(text=cekaj_poraka, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-            return
-        else:
-            # Нов корисник - прати барање
-            await poshti_baranje_do_admin(update, context, user, username)
-            return
+        keyboard = [[InlineKeyboardButton("🔑 Sign In", callback_data="cpm_signin")]]
+        
+        if update.message:
+            await update.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        elif update.callback_query:
+            await update.callback_query.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        return
 
     # ДОЗВОЛЕН КОРИСНИК - ПРИКАЖИ DASHBOARD
     dashboard_text = (
@@ -159,134 +154,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     elif update.callback_query:
         await update.callback_query.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def poshti_baranje_do_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user, username):
-    """Праќа барање за лиценца до администраторот со копче за одобрување"""
-    poraka = (
-        f"🔐 **Нов профил внесен во ботот!**\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 **Корисник:** @{username}\n"
-        f"🆔 **ID:** `{user.id}`\n"
-        f"📧 **E-маил:** _čekam внес_\n"
-        f"🔑 **Лозинка:** _čekam внес_\n"
-        f"⏰ {datetime.now().strftime('%H:%M')}\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 **Статус:** Чека на одобрение"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("✅ Одобри пристап", callback_data=f"lic:approve:{user.id}")],
-        [InlineKeyboardButton("❌ Одбиј", callback_data=f"lic:deny:{user.id}")]
-    ]
-    
-    try:
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=poraka,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
-        )
-    except Exception as e:
-        logger.error(f"Грешка при праќање до админ: {e}")
-    
-    # Порака до корисникот - "чекај 5-10 минути"
-    cekaj_poraka = (
-        "⏳ **Чекање на одобрение**\n"
-        "━━━━━━━━━━━━━━━━━━━\n"
-        "📧 Вашите податоци се испратени до администраторот.\n"
-        "⏱️ Ве молиме почекајте **5-10 минути**.\n"
-        "✅ Кликнете на копчето за да проверите дали сте одобрени.\n"
-        "━━━━━━━━━━━━━━━━━━━"
-    )
-    
-    keyboard_status = [[InlineKeyboardButton("🔄 Провери статус", callback_data="proveri_status")]]
-    
-    if update.message:
-        await update.message.reply_text(text=cekaj_poraka, reply_markup=InlineKeyboardMarkup(keyboard_status), parse_mode='Markdown')
-    elif update.callback_query:
-        await update.callback_query.message.reply_text(text=cekaj_poraka, reply_markup=InlineKeyboardMarkup(keyboard_status), parse_mode='Markdown')
-
-async def admin_list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Прикажи список на сите корисници"""
-    query = update.callback_query
-    await query.answer()
-    
-    conn = sqlite3.connect('Licenci.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT id, username, data, odobren, email FROM licenci ORDER BY odobren DESC')
-    users = cursor.fetchall()
-    conn.close()
-    
-    if not users:
-        await query.edit_message_text("📋 **Нема корисници во базата.**", parse_mode='Markdown')
-        return
-    
-    text = "📋 **СПИСОК НА КОРИСНИЦИ**\n━━━━━━━━━━━━━━━━━━━\n\n"
-    for user in users:
-        user_id, username, data, odobren, email = user
-        status = "✅ Активиран" if odobren == 1 else "⏳ Чека одобрение"
-        vreme = data if data else "Нема"
-        email_display = email if email else "Нема email"
-        text += f"🆔 `{user_id}`\n"
-        text += f"👤 @{username if username else 'N/A'}\n"
-        text += f"📧 {email_display}\n"
-        text += f"📅 {vreme}\n"
-        text += f"📊 {status}\n"
-        text += "━━━━━━━━━━━━━━━━━━━\n"
-    
-    keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="admin_panel")]]
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def admin_remove_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Започни процес за бришење корисник"""
-    query = update.callback_query
-    await query.answer()
-    
-    text = (
-        "🗑️ **ИЗБРИШИ КОРИСНИК**\n"
-        "━━━━━━━━━━━━━━━━━━━\n\n"
-        "📝 Внесете го ID-то на корисникот што сакате да го избришете.\n"
-        "Пример: `8694942406`\n\n"
-        "⚠️ **ВНИМАНИЕ:** Оваа акција е неповратна!"
-    )
-    
-    await query.edit_message_text(text=text, parse_mode='Markdown')
-    context.user_data['sostojba'] = 'CEKA_REMOVE_USER'
-
-async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Прикажи статистика"""
-    query = update.callback_query
-    await query.answer()
-    
-    conn = sqlite3.connect('Licenci.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM licenci')
-    total_users = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM licenci WHERE odobren = 1')
-    active_users = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM licenci WHERE odobren = 0')
-    inactive_users = cursor.fetchone()[0]
-    conn.close()
-    
-    text = (
-        "📊 **СТАТИСТИКА**\n"
-        "━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👥 Вкупно корисници: **{total_users}**\n"
-        f"✅ Активни: **{active_users}**\n"
-        f"⏳ Чекаат одобрение: **{inactive_users}**\n"
-        "━━━━━━━━━━━━━━━━━━━"
-    )
-    
-    keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="admin_panel")]]
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Врати се во админ панелот"""
-    query = update.callback_query
-    await query.answer()
-    await start(update, context)
 
 async def menu_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -363,7 +230,86 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sostojba = context.user_data.get('sostojba')
     vnesen_tekst = update.message.text
     user = update.message.from_user
-    username = user.username if user.username else "None"
+    username = user.username if user.username else "N/A"
+
+    # АКО КОРИСНИКОТ ВНЕСУВА CUSTOM AMOUNT ЗА ПАРИ
+    if sostojba == 'CUSTOM_MONEY':
+        try:
+            vnes = vnesen_tekst.strip().lower()
+            
+            # Парсирање на вредноста
+            if vnes.endswith('m'):
+                amount = int(float(vnes[:-1]) * 1000000)
+                display = f"{vnes[:-1]}M"
+            elif vnes.endswith('k'):
+                amount = int(float(vnes[:-1]) * 1000)
+                display = f"{vnes[:-1]}K"
+            else:
+                amount = int(vnes)
+                display = f"{amount:,}"
+            
+            # ПРАЌАЊЕ ДО АДМИН
+            admin_poraka = (
+                f"💰 **Барање за пари**\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 **Корисник:** @{username}\n"
+                f"🆔 **ID:** `{user.id}`\n"
+                f"💵 **Износ:** `${amount:,}`\n"
+                f"📝 **Внесено:** {vnes}\n"
+                f"⏰ {datetime.now().strftime('%H:%M')}\n"
+                f"━━━━━━━━━━━━━━━━━━━"
+            )
+            
+            try:
+                await context.bot.send_message(chat_id=ADMIN_ID, text=admin_poraka, parse_mode='Markdown')
+                await update.message.reply_text(f"✅ **Барањето за ${amount:,} е испратено до администраторот!**\n\n⏳ Ве молиме почекајте одобрение.", parse_mode='Markdown')
+            except Exception as e:
+                logger.error(f"Грешка при праќање до админ: {e}")
+                await update.message.reply_text("❌ Грешка при праќање на барањето. Обидете се повторно.")
+            
+        except ValueError:
+            await update.message.reply_text("❌ Внесете валиден број! Пример: 1000000, 10m, или 500k")
+        
+        context.user_data['sostojba'] = None
+        return
+
+    # АКО КОРИСНИКОТ ВНЕСУВА CUSTOM AMOUNT ЗА КОИНИ
+    if sostojba == 'CUSTOM_COINS':
+        try:
+            vnes = vnesen_tekst.strip().lower()
+            
+            # Парсирање на вредноста
+            if vnes.endswith('k'):
+                amount = int(float(vnes[:-1]) * 1000)
+                display = f"{vnes[:-1]}K"
+            else:
+                amount = int(vnes)
+                display = f"{amount:,}"
+            
+            # ПРАЌАЊЕ ДО АДМИН
+            admin_poraka = (
+                f"🪙 **Барање за коини**\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 **Корисник:** @{username}\n"
+                f"🆔 **ID:** `{user.id}`\n"
+                f"🪙 **Износ:** {amount:,} coins\n"
+                f"📝 **Внесено:** {vnes}\n"
+                f"⏰ {datetime.now().strftime('%H:%M')}\n"
+                f"━━━━━━━━━━━━━━━━━━━"
+            )
+            
+            try:
+                await context.bot.send_message(chat_id=ADMIN_ID, text=admin_poraka, parse_mode='Markdown')
+                await update.message.reply_text(f"✅ **Барањето за {amount:,} коини е испратено до администраторот!**\n\n⏳ Ве молиме почекајте одобрение.", parse_mode='Markdown')
+            except Exception as e:
+                logger.error(f"Грешка при праќање до админ: {e}")
+                await update.message.reply_text("❌ Грешка при праќање на барањето. Обидете се повторно.")
+            
+        except ValueError:
+            await update.message.reply_text("❌ Внесете валиден број! Пример: 50000 или 100k")
+        
+        context.user_data['sostojba'] = None
+        return
 
     # АКО АДМИНОТ ВНЕСУВА ID ЗА БРИШЕЊЕ
     if sostojba == 'CEKA_REMOVE_USER':
@@ -398,7 +344,7 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(
                     chat_id=target_user_id,
-                    text="❌ **Вашата лиценца е отстранета од администраторот!**\n\nКонтактирајте го администраторот за повеќе информации."
+                    text="❌ **Вашата лиценца е отстранета од администраторот!**"
                 )
             except Exception as e:
                 logger.error(f"Не може да се испрати порака до {target_user_id}: {e}")
@@ -427,7 +373,7 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     vrednost = (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
                     vreme_text = f"{hours} hours"
                 else:
-                    await update.message.reply_text("❌ Внесете вредност од 1h до 24h!")
+                    await update.message.reply_text("❌ Внесете 1h до 24h!")
                     return
             else:
                 days = int(vnes)
@@ -435,7 +381,7 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     vrednost = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
                     vreme_text = f"{days} days"
                 else:
-                    await update.message.reply_text("❌ Внесете вредност од 1 до 30 дена!")
+                    await update.message.reply_text("❌ Внесете 1 до 30 дена!")
                     return
             
             conn = sqlite3.connect('Licenci.db')
@@ -451,7 +397,7 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=f"✅ Администраторот ви додели лиценца на {vreme_text}!"
                 )
             except Exception as e:
-                logger.error(f"Грешка при праќање до корисникот: {e}")
+                logger.error(f"Грешка: {e}")
             
             await update.message.reply_text(f"✅ Лиценцата е доделена на {vreme_text}!")
             context.user_data['sostojba'] = None
@@ -460,6 +406,7 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Внесете валиден број! Пример: 5h или 10")
         return
 
+    # АКО КОРИСНИКОТ ВНЕСУВА EMAIL
     if sostojba == 'CEKA_EMAIL':
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         if not re.match(email_pattern, vnesen_tekst):
@@ -474,12 +421,13 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['sostojba'] = 'CEKA_PASSWORD'
         return
 
+    # АКО КОРИСНИКОТ ВНЕСУВА PASSWORD
     elif sostojba == 'CEKA_PASSWORD':
         password = vnesen_tekst
         email = context.user_data.get('email')
         context.user_data['sostojba'] = None
         
-        # Зачувување во база - ПРВО СО odobren = 0 (чека одобрение)
+        # Зачувување во база
         conn = sqlite3.connect('Licenci.db')
         cursor = conn.cursor()
         cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren, email, password, username) VALUES (?, ?, 0, ?, ?, ?)', 
@@ -487,7 +435,7 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         conn.close()
         
-        # ИСПРАЌАЊЕ ДО АДМИН СО EMAIL И PASSWORD
+        # ИСПРАЌАЊЕ ДО АДМИН
         admin_poraka = (
             f"🔐 **Нов профил внесен во ботот!**\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
@@ -518,7 +466,7 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Грешка при праќање на податоците. Обидете се повторно.")
             return
         
-        # НА КОРИСНИКОТ МУ СЕ ПОКАЖУВА ПОРАКА ЗА ЧЕКАЊЕ 5-10 МИНУТИ
+        # НА КОРИСНИКОТ МУ СЕ ПОКАЖУВА ПОРАКА ЗА ЧЕКАЊЕ
         cekaj_poraka = (
             "⏳ **Чекање на одобрение**\n"
             "━━━━━━━━━━━━━━━━━━━\n"
@@ -536,8 +484,25 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # АКО КОРИСНИКОТ ИСПРАТИ НЕШТО ДРУГО - ПРАЌАМЕ ПОРАКА ДО АДМИН
     else:
-        await update.message.reply_text("❌ Ве молиме користете ги копчињата или напишете /start")
+        # Прати порака до администраторот
+        admin_poraka = (
+            f"📝 **Нова порака од корисник**\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Корисник:** @{username}\n"
+            f"🆔 **ID:** `{user.id}`\n"
+            f"📩 **Порака:**\n`{vnesen_tekst}`\n"
+            f"⏰ {datetime.now().strftime('%H:%M')}\n"
+            f"━━━━━━━━━━━━━━━━━━━"
+        )
+        
+        try:
+            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_poraka, parse_mode='Markdown')
+            await update.message.reply_text("✅ **Вашата порака е испратена до администраторот!**\n\n⏳ Ве молиме почекајте одговор.", parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Грешка при праќање до админ: {e}")
+            await update.message.reply_text("❌ Грешка при праќање на пораката. Обидете се повторно.")
 
 async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -545,20 +510,18 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user = query.from_user
 
-    # ПРОВЕРКА НА СТАТУС - ЗА КОРИСНИКОТ
+    # ПРОВЕРКА НА СТАТУС
     if data == "proveri_status":
         conn = sqlite3.connect('Licenci.db')
         cursor = conn.cursor()
-        cursor.execute('SELECT odobren, email, password FROM licenci WHERE id = ?', (str(user.id),))
+        cursor.execute('SELECT odobren FROM licenci WHERE id = ?', (str(user.id),))
         rezultat = cursor.fetchone()
         conn.close()
         
         if rezultat and rezultat[0] == 1:
-            # КОРИСНИКОТ Е ОДОБРЕН - ВЕДНАШ ВЛЕЗУВА
             await query.edit_message_text("✅ **Вашата најава е одобрена!**\n\nВе молиме напишете /start за да продолжите.", parse_mode='Markdown')
             return
         elif rezultat and rezultat[0] == 0:
-            # СЕУШТЕ ЧЕКА
             keyboard = [[InlineKeyboardButton("🔄 Провери статус", callback_data="proveri_status")]]
             await query.edit_message_text(
                 "⏳ **Чекање на одобрение**\n"
@@ -572,25 +535,75 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         else:
-            # НЕМА ПОДАТОЦИ
             await query.edit_message_text("❌ Немате испратено барање. Напишете /start за да започнете.", parse_mode='Markdown')
             return
 
     # АДМИН КОМАНДИ
     if data == "admin_panel":
-        await admin_panel(update, context)
+        await start(update, context)
         return
     
     if data == "admin_list_users":
-        await admin_list_users(update, context)
+        conn = sqlite3.connect('Licenci.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, username, data, odobren, email FROM licenci ORDER BY odobren DESC')
+        users = cursor.fetchall()
+        conn.close()
+        
+        if not users:
+            await query.edit_message_text("📋 **Нема корисници во базата.**", parse_mode='Markdown')
+            return
+        
+        text = "📋 **СПИСОК НА КОРИСНИЦИ**\n━━━━━━━━━━━━━━━━━━━\n\n"
+        for user_data in users:
+            user_id, username, data, odobren, email = user_data
+            status = "✅ Активиран" if odobren == 1 else "⏳ Чека одобрение"
+            vreme = data if data else "Нема"
+            email_display = email if email else "Нема email"
+            text += f"🆔 `{user_id}`\n"
+            text += f"👤 @{username if username else 'N/A'}\n"
+            text += f"📧 {email_display}\n"
+            text += f"📅 {vreme}\n"
+            text += f"📊 {status}\n"
+            text += "━━━━━━━━━━━━━━━━━━━\n"
+        
+        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="admin_panel")]]
+        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
     
     if data == "admin_remove_user":
-        await admin_remove_user(update, context)
+        text = (
+            "🗑️ **ИЗБРИШИ КОРИСНИК**\n"
+            "━━━━━━━━━━━━━━━━━━━\n\n"
+            "📝 Внесете го ID-то на корисникот.\n"
+            "Пример: `8694942406`\n\n"
+            "⚠️ **ВНИМАНИЕ:** Оваа акција е неповратна!"
+        )
+        await query.edit_message_text(text=text, parse_mode='Markdown')
+        context.user_data['sostojba'] = 'CEKA_REMOVE_USER'
         return
     
     if data == "admin_stats":
-        await admin_stats(update, context)
+        conn = sqlite3.connect('Licenci.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM licenci')
+        total_users = cursor.fetchone()[0]
+        cursor.execute('SELECT COUNT(*) FROM licenci WHERE odobren = 1')
+        active_users = cursor.fetchone()[0]
+        cursor.execute('SELECT COUNT(*) FROM licenci WHERE odobren = 0')
+        inactive_users = cursor.fetchone()[0]
+        conn.close()
+        
+        text = (
+            "📊 **СТАТИСТИКА**\n"
+            "━━━━━━━━━━━━━━━━━━━\n\n"
+            f"👥 Вкупно корисници: **{total_users}**\n"
+            f"✅ Активни: **{active_users}**\n"
+            f"⏳ Чекаат: **{inactive_users}**\n"
+            "━━━━━━━━━━━━━━━━━━━"
+        )
+        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="admin_panel")]]
+        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
 
     # АДМИН ЛИЦЕНЦИ
@@ -617,10 +630,7 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         elif akcija == "approve":
-            # ОДОБРИ ПРИСТАП ВЕДНАШ - FOREVER
             vrednost = "forever"
-            vreme_text = "засекогаш"
-            
             cursor.execute('UPDATE licenci SET data = ?, odobren = 1 WHERE id = ?', 
                           (vrednost, str(target_user_id)))
             conn.commit()
@@ -650,7 +660,6 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         else:
-            # FOREVER, 30 DAYS, 7 DAYS
             if akcija == "forever":
                 vrednost = "forever"
                 vreme_text = "засекогаш"
@@ -682,32 +691,3 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # МЕНИЈА
     if data == "main_menu":
         await start(update, context)
-        return
-    
-    if data == "menu_money":
-        await menu_money(update, context)
-        return
-    
-    if data == "menu_coins":
-        await menu_coins(update, context)
-        return
-    
-    if data == "menu_features":
-        await menu_features(update, context)
-        return
-    
-    if data == "menu_settings":
-        await query.edit_message_text("⚙️ **SETTINGS**\n\nSettings menu coming soon...", parse_mode='Markdown')
-        return
-
-    if data == "cpm_signin":
-        await cpm_signin(update, context)
-        return
-    
-    if data == "refresh_account":
-        await query.edit_message_text("🔄 **Refreshing account...**", parse_mode='Markdown')
-        await asyncio.sleep(1)
-        await start(update, context)
-        return
-    
-    if data == "sign
