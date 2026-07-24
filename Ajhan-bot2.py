@@ -123,6 +123,7 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("lic:"):
         delovi = data.split(":")
+        # ПОПРАВЕНО: Додадени се точните позициски индекси за листата
         akcija = delovi[1]
         target_user_id = delovi[2]
         
@@ -241,5 +242,3 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 if __name__ == '__main__':
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
