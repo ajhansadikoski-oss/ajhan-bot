@@ -26,7 +26,7 @@ ADMIN_MENU, CEKA_BRISI_ID, CEKA_CUSTOM_DAYS = range(3)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8674559116:AAFuZWJJLVY-qMAHBSr7Z6om686b1zeGxKc")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "8694942406"))
 
-# Иницијализација на базата
+# ========== БАЗА ==========
 def inicijaliziraj_baza():
     conn = sqlite3.connect('licenci.db')
     cursor = conn.cursor()
@@ -60,260 +60,128 @@ inicijaliziraj_baza()
 
 # ========== GG СКРИПТИ ==========
 def generiraj_gg_skripta(funkcija, user_id):
-    """Генерира вистински Lua скрипти за Game Guardian"""
-    
     if funkcija == "W16":
-        return f"""
--- W16 MOTOR UNLOCK
--- Корисник: {user_id}
-function W16()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('2000', gg.TYPE_DWORD)
-    gg.getResults(100)
-    gg.editAll('5000', gg.TYPE_DWORD)
-    gg.alert('✅ W16 Motor отклучен!')
-end
-W16()
-"""
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('2000', gg.TYPE_DWORD)
+gg.getResults(100)
+gg.editAll('5000', gg.TYPE_DWORD)
+gg.alert('✅ W16 Motor отклучен!')"""
     elif funkcija == "PARI":
-        return f"""
--- $$$ MONEY HACK $$$
--- Корисник: {user_id}
-function MONEY()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('1000', gg.TYPE_DWORD)
-    gg.getResults(100)
-    gg.editAll('999999999', gg.TYPE_DWORD)
-    gg.alert('💰 Додадени $999,999,999!')
-end
-MONEY()
-"""
-    elif funkcija == "Horns":
-        return f"""
--- 🎺 ALL HORNS UNLOCK
--- Корисник: {user_id}
-function HORNS()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('0', gg.TYPE_DWORD)
-    gg.getResults(1000)
-    gg.editAll('1', gg.TYPE_DWORD)
-    gg.alert('✅ Сите хорни отклучени!')
-end
-HORNS()
-"""
-    elif funkcija == "NoDmg":
-        return f"""
--- 🛡️ NO DAMAGE
--- Корисник: {user_id}
-function NODMG()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('100', gg.TYPE_FLOAT)
-    gg.getResults(50)
-    gg.editAll('999999', gg.TYPE_FLOAT)
-    gg.alert('🛡️ Штетата е исклучена!')
-end
-NODMG()
-"""
-    elif funkcija == "Fuel":
-        return f"""
--- ⛽ INFINITE FUEL
--- Корисник: {user_id}
-function FUEL()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('100', gg.TYPE_FLOAT)
-    gg.getResults(50)
-    gg.editAll('999999', gg.TYPE_FLOAT)
-    gg.alert('⛽ Бесконечно гориво!')
-end
-FUEL()
-"""
-    elif funkcija == "Smoke":
-        return f"""
--- 💨 SMOKE EFFECTS
--- Корисник: {user_id}
-function SMOKE()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('0', gg.TYPE_DWORD)
-    gg.getResults(100)
-    gg.editAll('1', gg.TYPE_DWORD)
-    gg.alert('💨 Ефекти на чад отклучени!')
-end
-SMOKE()
-"""
-    elif funkcija == "Animations":
-        return f"""
--- 🎭 ALL ANIMATIONS
--- Корисник: {user_id}
-function ANIMATIONS()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('0', gg.TYPE_DWORD)
-    gg.getResults(500)
-    gg.editAll('1', gg.TYPE_DWORD)
-    gg.alert('🎭 Сите анимации отклучени!')
-end
-ANIMATIONS()
-"""
-    elif funkcija == "Wheels":
-        return f"""
--- ⚙️ ALL WHEELS
--- Корисник: {user_id}
-function WHEELS()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('0', gg.TYPE_DWORD)
-    gg.getResults(200)
-    gg.editAll('1', gg.TYPE_DWORD)
-    gg.alert('⚙️ Сите тркала отклучени!')
-end
-WHEELS()
-"""
-    elif funkcija == "Houses":
-        return f"""
--- 🏠 ALL HOUSES
--- Корисник: {user_id}
-function HOUSES()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('0', gg.TYPE_DWORD)
-    gg.getResults(100)
-    gg.editAll('1', gg.TYPE_DWORD)
-    gg.alert('🏠 Сите куќи отклучени!')
-end
-HOUSES()
-"""
-    elif funkcija == "Levels":
-        return f"""
--- 📈 MAX LEVEL
--- Корисник: {user_id}
-function LEVELS()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('1', gg.TYPE_DWORD)
-    gg.getResults(100)
-    gg.editAll('999', gg.TYPE_DWORD)
-    gg.alert('📈 Макс ниво 999!')
-end
-LEVELS()
-"""
-    elif funkcija == "Rank":
-        return f"""
--- 👑 MAX RANK
--- Корисник: {user_id}
-function RANK()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('1', gg.TYPE_DWORD)
-    gg.getResults(50)
-    gg.editAll('999999', gg.TYPE_DWORD)
-    gg.alert('👑 Макс ранг!')
-end
-RANK()
-"""
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('1000', gg.TYPE_DWORD)
+gg.getResults(100)
+gg.editAll('999999999', gg.TYPE_DWORD)
+gg.alert('💰 Додадени $999,999,999!')"""
     elif funkcija == "UnlockAll":
-        return f"""
--- 🌟 UNLOCK ALL ★
--- Корисник: {user_id}
-function UNLOCK_ALL()
-    gg.setRanges(gg.REGION_C_ALLOC)
-    gg.searchNumber('1000', gg.TYPE_DWORD)
-    gg.getResults(100)
-    gg.editAll('999999999', gg.TYPE_DWORD)
-    gg.searchNumber('2000', gg.TYPE_DWORD)
-    gg.getResults(100)
-    gg.editAll('5000', gg.TYPE_DWORD)
-    gg.searchNumber('0', gg.TYPE_DWORD)
-    gg.getResults(1000)
-    gg.editAll('1', gg.TYPE_DWORD)
-    gg.alert('🌟 СЕ Е ОТКЛУЧЕНО! 🎉')
-end
-UNLOCK_ALL()
-"""
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('1000', gg.TYPE_DWORD)
+gg.getResults(100)
+gg.editAll('999999999', gg.TYPE_DWORD)
+gg.searchNumber('2000', gg.TYPE_DWORD)
+gg.getResults(100)
+gg.editAll('5000', gg.TYPE_DWORD)
+gg.searchNumber('0', gg.TYPE_DWORD)
+gg.getResults(1000)
+gg.editAll('1', gg.TYPE_DWORD)
+gg.alert('🌟 СЕ Е ОТКЛУЧЕНО! 🎉')"""
+    elif funkcija == "Horns":
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('0', gg.TYPE_DWORD)
+gg.getResults(1000)
+gg.editAll('1', gg.TYPE_DWORD)
+gg.alert('✅ Сите хорни отклучени!')"""
+    elif funkcija == "NoDmg":
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('100', gg.TYPE_FLOAT)
+gg.getResults(50)
+gg.editAll('999999', gg.TYPE_FLOAT)
+gg.alert('🛡️ Штетата е исклучена!')"""
+    elif funkcija == "Fuel":
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('100', gg.TYPE_FLOAT)
+gg.getResults(50)
+gg.editAll('999999', gg.TYPE_FLOAT)
+gg.alert('⛽ Бесконечно гориво!')"""
+    elif funkcija == "Smoke":
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('0', gg.TYPE_DWORD)
+gg.getResults(100)
+gg.editAll('1', gg.TYPE_DWORD)
+gg.alert('💨 Ефекти на чад отклучени!')"""
+    elif funkcija == "Animations":
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('0', gg.TYPE_DWORD)
+gg.getResults(500)
+gg.editAll('1', gg.TYPE_DWORD)
+gg.alert('🎭 Сите анимации отклучени!')"""
+    elif funkcija == "Wheels":
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('0', gg.TYPE_DWORD)
+gg.getResults(200)
+gg.editAll('1', gg.TYPE_DWORD)
+gg.alert('⚙️ Сите тркала отклучени!')"""
+    elif funkcija == "Houses":
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('0', gg.TYPE_DWORD)
+gg.getResults(100)
+gg.editAll('1', gg.TYPE_DWORD)
+gg.alert('🏠 Сите куќи отклучени!')"""
+    elif funkcija == "Levels":
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('1', gg.TYPE_DWORD)
+gg.getResults(100)
+gg.editAll('999', gg.TYPE_DWORD)
+gg.alert('📈 Макс ниво 999!')"""
+    elif funkcija == "Rank":
+        return f"""gg.setRanges(gg.REGION_C_ALLOC)
+gg.searchNumber('1', gg.TYPE_DWORD)
+gg.getResults(50)
+gg.editAll('999999', gg.TYPE_DWORD)
+gg.alert('👑 Макс ранг!')"""
+    else:
+        return ""
 
-# ========== START ==========
+# ========== START - ГЛАВНА ФУНКЦИЈА ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     username = update.message.from_user.username or "N/A"
     first_name = update.message.from_user.first_name or "User"
+    
+    logger.info(f"📱 Start команда од {user_id} (@{username})")
 
-    # Ако е админ - админ панел
+    # АДМИН
     if user_id == ADMIN_ID:
         await prikazi_admin_panel(update)
         return ADMIN_MENU
 
-    # ПРОВЕРКА ДАЛИ КОРИСНИКОТ ИМА ЛИЦЕНЦА
+    # ПРОВЕРКА ВО БАЗА
     conn = sqlite3.connect('licenci.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT istekuvanje, status FROM korisnici WHERE user_id = ?', (user_id,))
+    cursor.execute('SELECT status, istekuvanje FROM korisnici WHERE user_id = ?', (user_id,))
     rezultat = cursor.fetchone()
     conn.close()
-
-    sega = datetime.now()
-    dozvolen = False
-
-    if rezultat:
-        istekuvanje_str = rezultat[0]
-        status = rezultat[1]
-        
-        # АКО Е ОДБИЕН
-        if status == 'denied':
-            await update.message.reply_text(
-                "❌ **Вашето барање е одбиено!**\n\n"
-                "Контактирајте го администраторот.",
-                parse_mode='Markdown'
-            )
-            return
-        
-        # АКО ИМА ЛИЦЕНЦА - ПРОВЕРИ ДАЛИ Е ВАЛИДНА
-        if istekuvanje_str == "forever":
-            dozvolen = True
-        elif istekuvanje_str and istekuvanje_str != "None":
-            try:
-                istekuvanje_datum = datetime.strptime(istekuvanje_str, "%Y-%m-%d %H:%M:%S")
-                if sega < istekuvanje_datum:
-                    dozvolen = True
-                else:
-                    # ЛИЦЕНЦАТА ИСТЕКНА - СТАВИ STATUS EXPIRED
-                    conn = sqlite3.connect('licenci.db')
-                    cursor = conn.cursor()
-                    cursor.execute('UPDATE korisnici SET status = "expired" WHERE user_id = ?', (user_id,))
-                    conn.commit()
-                    conn.close()
-                    await update.message.reply_text(
-                        "❌ **Вашата лиценца истекна!**\n\n"
-                        "Контактирајте го администраторот за нова лиценца.",
-                        parse_mode='Markdown'
-                    )
-                    return
-            except:
-                pass
-
-    # АКО НЕМА ЛИЦЕНЦА ИЛИ НЕ Е ВАЛИДНА
-    if not dozvolen:
-        # АКО ВЕЌЕ ИМА PENDING БАРАЊЕ
-        if rezultat and rezultat[1] == 'pending':
-            await update.message.reply_text(
-                "⏳ **Веќе имате испратено барање!**\n\n"
-                "Почекајте администраторот да го одобри.",
-                parse_mode='Markdown'
-            )
-            return
-        
-        # ЗАЧУВАЈ НОВО БАРАЊЕ
+    
+    # АКО КОРИСНИКОТ НЕ ПОСТОИ ВО БАЗА
+    if not rezultat:
+        # КРЕИРАЈ НОВО БАРАЊЕ
         conn = sqlite3.connect('licenci.db')
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT OR REPLACE INTO korisnici (user_id, username, first_name, status) 
+            INSERT INTO korisnici (user_id, username, first_name, status) 
             VALUES (?, ?, ?, 'pending')
         ''', (user_id, username, first_name))
         conn.commit()
         conn.close()
         
-        # ПОРАКА ДО КОРИСНИКОТ
         await update.message.reply_text(
             f"✅ **Барањето е испратено!**\n\n"
             f"👤 Корисник: @{username}\n"
-            f"🆔 ID: {user_id}\n\n"
+            f"🆔 ID: `{user_id}`\n\n"
             f"📌 Почекајте администраторот да ве одобри.",
             parse_mode='Markdown'
         )
         
-        # ПОРАКА ДО АДМИНОТ
+        # ИСПРАТИ ПОРАКА ДО АДМИН
         tastatura = [
             [
                 InlineKeyboardButton("♾️ Forever", callback_data=f"lic_forever_{user_id}"),
@@ -339,9 +207,72 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         return
-
-    # ✅ КОРИСНИКОТ ИМА ВАЛИДНА ЛИЦЕНЦА - ПРИКАЖИ GG МЕНИ
-    await prikazi_gg_menu(update, context)
+    
+    # КОРИСНИКОТ ПОСТОИ - ПРОВЕРИ СТАТУС
+    status = rezultat[0]
+    istekuvanje = rezultat[1]
+    
+    # АКО Е ОДБИЕН
+    if status == 'denied':
+        await update.message.reply_text(
+            "❌ **Вашето барање е одбиено!**\n\n"
+            "Контактирајте го администраторот.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # АКО Е PENDING (ЧЕКА)
+    if status == 'pending':
+        await update.message.reply_text(
+            "⏳ **Веќе имате испратено барање!**\n\n"
+            "Почекајте администраторот да го одобри.\n"
+            f"📅 Испратено: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # АКО Е APPROVED - ПРОВЕРИ ДАЛИ ЛИЦЕНЦАТА Е ВАЛИДНА
+    if status == 'approved':
+        # ПРОВЕРИ ДАЛИ ЛИЦЕНЦАТА ИСТЕКНА
+        if istekuvanje and istekuvanje != "forever":
+            try:
+                istek_datum = datetime.strptime(istekuvanje, "%Y-%m-%d %H:%M:%S")
+                if datetime.now() > istek_datum:
+                    # ЛИЦЕНЦАТА ИСТЕКНА
+                    conn = sqlite3.connect('licenci.db')
+                    cursor = conn.cursor()
+                    cursor.execute('UPDATE korisnici SET status = "expired" WHERE user_id = ?', (user_id,))
+                    conn.commit()
+                    conn.close()
+                    
+                    await update.message.reply_text(
+                        "❌ **Вашата лиценца истекна!**\n\n"
+                        "Контактирајте го администраторот за нова лиценца.",
+                        parse_mode='Markdown'
+                    )
+                    return
+            except Exception as e:
+                logger.error(f"Грешка при проверка на лиценца: {e}")
+        
+        # ✅ ЛИЦЕНЦАТА Е ВАЛИДНА - ПРИКАЖИ GG МЕНИ
+        await prikazi_gg_menu(update, context)
+        return
+    
+    # АКО Е EXPIRED
+    if status == 'expired':
+        await update.message.reply_text(
+            "❌ **Вашата лиценца истекна!**\n\n"
+            "Контактирајте го администраторот за нова лиценца.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # ДЕФАУЛТ
+    await update.message.reply_text(
+        "❌ **Грешка!**\n\n"
+        "Контактирајте го администраторот.",
+        parse_mode='Markdown'
+    )
 
 # ========== GG МЕНИ ==========
 async def prikazi_gg_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -364,7 +295,7 @@ async def prikazi_gg_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if preostanato.days > 0:
                 istek = f"{preostanato.days} дена"
             else:
-                istek = "ИСТЕКНА 🔴"
+                istek = "🔴 ИСТЕКНА"
         except:
             pass
     
@@ -402,9 +333,6 @@ async def prikazi_gg_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton("💵 ДОБИЈ ПАРИ", callback_data="gg_money")
-        ],
-        [
-            InlineKeyboardButton("🔙 Назад", callback_data="gg_back")
         ]
     ]
     
@@ -430,14 +358,14 @@ async def gg_funkcija(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     funkcija = query.data.replace('gg_', '')
     
-    # ПРОВЕРКА ДАЛИ КОРИСНИКОТ ИМА ВАЛИДНА ЛИЦЕНЦА
+    # ПРОВЕРКА НА ЛИЦЕНЦА
     conn = sqlite3.connect('licenci.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT istekuvanje, status FROM korisnici WHERE user_id = ?', (user_id,))
+    cursor.execute('SELECT status, istekuvanje FROM korisnici WHERE user_id = ?', (user_id,))
     rezultat = cursor.fetchone()
     conn.close()
     
-    if not rezultat or rezultat[1] != 'approved':
+    if not rezultat or rezultat[0] != 'approved':
         await query.edit_message_text(
             "❌ **Немате активна лиценца!**\n\n"
             "Напишете /start за да побарате пристап.",
@@ -446,9 +374,9 @@ async def gg_funkcija(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Провери дали лиценцата е истекната
-    if rezultat[0] != "forever" and rezultat[0]:
+    if rezultat[1] and rezultat[1] != "forever":
         try:
-            istek_datum = datetime.strptime(rezultat[0], "%Y-%m-%d %H:%M:%S")
+            istek_datum = datetime.strptime(rezultat[1], "%Y-%m-%d %H:%M:%S")
             if datetime.now() > istek_datum:
                 await query.edit_message_text(
                     "❌ **Вашата лиценца истекна!**\n\n"
@@ -487,16 +415,14 @@ async def gg_funkcija(update: Update, context: ContextTypes.DEFAULT_TYPE):
 2. Избери Car Parking Multiplayer
 3. Кликни на иконата за скрипти (📜)
 4. Paste - Вметни ја скриптата
-5. Run - Изврши
-
-⚠️ <b>ВАЖНО:</b> Скриптата работи само ако имаш активна лиценца!""",
+5. Run - Изврши""",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("🔙 Назад во Мени", callback_data="gg_menu")]
         ]),
         parse_mode='HTML'
     )
 
-# ========== АДМИН ФУНКЦИИ ==========
+# ========== АДМИН ПАНЕЛ ==========
 async def prikazi_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect('licenci.db')
     cursor = conn.cursor()
@@ -512,12 +438,12 @@ async def prikazi_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     conn.close()
     
-    admin_text = f"""<b>👑 GG ADMIN PANEL</b>
+    admin_text = f"""<b>👑 АДМИН ПАНЕЛ</b>
 
 📊 <b>Статистика:</b>
-• Вкупно: {vkupno}
+• Вкупно корисници: {vkupno}
 • Активни: {aktivni}
-• Барања: {baranja}
+• Барања за пристап: {baranja}
 
 📌 <b>Избери опција:</b>"""
 
@@ -542,13 +468,14 @@ async def prikazi_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode='HTML'
         )
 
+# ========== АДМИН ФУНКЦИИ ==========
 async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     conn = sqlite3.connect('licenci.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT user_id, username, first_name, status, istekuvanje FROM korisnici')
+    cursor.execute('SELECT user_id, username, first_name, status, istekuvanje FROM korisnici ORDER BY user_id')
     users = cursor.fetchall()
     conn.close()
     
@@ -563,7 +490,8 @@ async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     tekst = "<b>📋 КОРИСНИЦИ:</b>\n\n"
     for user in users[:20]:
-        tekst += f"🆔 {user[0]} | @{user[1] or 'N/A'}\n"
+        status_emoji = "✅" if user[3] == "approved" else "⏳" if user[3] == "pending" else "❌"
+        tekst += f"{status_emoji} 🆔 {user[0]} | @{user[1] or 'N/A'}\n"
         tekst += f"   Статус: {user[3]} | {user[4] or 'Нема'}\n\n"
     
     await query.edit_message_text(
@@ -592,17 +520,25 @@ async def primi_id_za_brisenje(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         user_id = int(update.message.text.strip())
     except:
-        await update.message.reply_text("❌ Внесете валиден ID!")
+        await update.message.reply_text("❌ Внесете валиден ID (само броеви)!")
         return CEKA_BRISI_ID
     
     conn = sqlite3.connect('licenci.db')
     cursor = conn.cursor()
+    cursor.execute('SELECT username FROM korisnici WHERE user_id = ?', (user_id,))
+    user = cursor.fetchone()
+    
+    if not user:
+        await update.message.reply_text(f"❌ Корисникот {user_id} не постои!")
+        conn.close()
+        return CEKA_BRISI_ID
+    
     cursor.execute('DELETE FROM korisnici WHERE user_id = ?', (user_id,))
     cursor.execute('DELETE FROM baranja_za_pari WHERE user_id = ?', (user_id,))
     conn.commit()
     conn.close()
     
-    await update.message.reply_text(f"✅ Корисникот {user_id} е избришан!")
+    await update.message.reply_text(f"✅ Корисникот @{user[0]} ({user_id}) е избришан!")
     await prikazi_admin_panel(update)
     return ADMIN_MENU
 
@@ -617,6 +553,8 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total = cursor.fetchone()[0]
     cursor.execute('SELECT COUNT(*) FROM korisnici WHERE status="approved"')
     active = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM korisnici WHERE status="pending"')
+    pending = cursor.fetchone()[0]
     cursor.execute('SELECT COUNT(*) FROM baranja_za_pari WHERE status="pending"')
     money = cursor.fetchone()[0]
     conn.close()
@@ -626,6 +564,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 👥 Вкупно: {total}
 ✅ Активни: {active}
+⏳ Чекаат: {pending}
 💵 Барања за пари: {money}
 📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}""",
         parse_mode='HTML',
@@ -640,7 +579,7 @@ async def admin_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     conn = sqlite3.connect('licenci.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT id, user_id, username, iznos, datum FROM baranja_za_pari WHERE status="pending"')
+    cursor.execute('SELECT id, user_id, username, iznos, datum FROM baranja_za_pari WHERE status="pending" ORDER BY id DESC')
     requests = cursor.fetchall()
     conn.close()
     
@@ -663,6 +602,7 @@ async def admin_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tekst,
         parse_mode='HTML',
         reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Освежи", callback_data="admin_money_requests")],
             [InlineKeyboardButton("🔙 Назад", callback_data="admin_back")]
         ])
     )
@@ -718,11 +658,7 @@ async def licenca_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
     
-    # ПОРАКА ДО АДМИНОТ
-    await query.edit_message_text(
-        f"✅ **Корисникот {user_id} е одобрен!**\n"
-        f"📅 Времетраење: {opis}"
-    )
+    await query.edit_message_text(f"✅ **Корисникот {user_id} е одобрен!**\n📅 {opis}")
     
     # ПОРАКА ДО КОРИСНИКОТ
     try:
@@ -807,7 +743,6 @@ def main():
     
     # GG handlers
     application.add_handler(CallbackQueryHandler(prikazi_gg_menu, pattern='^gg_menu$'))
-    application.add_handler(CallbackQueryHandler(prikazi_gg_menu, pattern='^gg_back$'))
     application.add_handler(CallbackQueryHandler(gg_funkcija, pattern='^gg_'))
     
     # Админ handlers
@@ -819,8 +754,10 @@ def main():
     # Команди
     application.add_handler(CommandHandler('start', start))
 
-    print("🤖 GG Ботот е стартуван!")
+    print("=" * 50)
+    print("🤖 GG БОТОТ Е СТАРТУВАН!")
     print(f"👑 Админ ID: {ADMIN_ID}")
+    print("=" * 50)
     application.run_polling()
 
 if __name__ == '__main__':
