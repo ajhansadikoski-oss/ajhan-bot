@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Поставено: Твојот точен токен и твоето точно ADMIN ID
+# Точниот токен и ADMIN ID
 BOT_TOKEN = "8674559116:AAFuZWJJLVY-qMAHBSr7Z6om686b1zeGxKc" 
 ADMIN_ID = 8694942406  
 
@@ -44,8 +44,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sega = datetime.now()
     dozvolen = False
 
-    if rezultat:
-        istekuvanje_str = rezultat[0]
+    if resultado:
+        istekuvanje_str = resultado
         if istekuvanje_str == "forever":
             dozvolen = True
         else:
@@ -94,7 +94,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🗝️ Успешно сте најавени во CPM ботот!"
     ).format(username=username, user_id=user.id, datum_sega=datum_sega)
 
-    keyboard = [[InlineKeyboardButton("📱 Отвори мени", callback_data="open_menu")]]
+    keyboard = [[InlineKeyboardButton("📱 Отвори ...", callback_data="open_menu")]]
     
     if update.message:
         await update.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
@@ -123,9 +123,8 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("lic:"):
         delovi = data.split(":")
-        # СРЕДЕНО: Коректни пајтон индекси со загради за да не пука серверот
-        akcija = delovi[1]
-        target_user_id = int(delovi[2])
+        akcija = delovi
+        target_user_id = int(delovi)
         
         conn = sqlite3.connect('Licenci.db')
         cursor = conn.cursor()
@@ -241,4 +240,7 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
 
-# Точниот извршен блок
+if __name__ == '__main__':
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
