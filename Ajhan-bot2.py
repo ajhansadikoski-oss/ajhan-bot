@@ -3,7 +3,9 @@ import sqlite3
 import asyncio
 import re
 import os
+import time
 from datetime import datetime, timedelta
+from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -408,7 +410,7 @@ async def cpm_signin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     context.user_data['state'] = 'WAIT_EMAIL'
 
-# ============ MONEY/COINS HANDLERS (Брзи одговори) ============
+# ============ MONEY/COINS HANDLERS ============
 
 async def handle_money_add(update: Update, context: ContextTypes.DEFAULT_TYPE, amount):
     query = update.callback_query
@@ -420,7 +422,7 @@ async def handle_money_add(update: Update, context: ContextTypes.DEFAULT_TYPE, a
         f"💰 New balance: ${CPM_DATA['money']:,}",
         parse_mode='Markdown'
     )
-    await asyncio.sleep(1)
+    await asyncio.sleep(0.5)
     await menu_money(update, context)
 
 async def handle_coins_add(update: Update, context: ContextTypes.DEFAULT_TYPE, amount):
@@ -433,7 +435,7 @@ async def handle_coins_add(update: Update, context: ContextTypes.DEFAULT_TYPE, a
         f"🪙 New balance: {CPM_DATA['coins']:,}",
         parse_mode='Markdown'
     )
-    await asyncio.sleep(1)
+    await asyncio.sleep(0.5)
     await menu_coins(update, context)
 
 # ============ MESSAGE HANDLER ============
@@ -643,7 +645,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "custom_money":
         await query.edit_message_text(
             "💰 **Enter custom amount:**\n"
-            "Example: 10m, 500k, or 1000000",
+            "Example: 10m, 500k, or 1000000\n"
+            "Max: $50M",
             parse_mode='Markdown'
         )
         context.user_data['state'] = 'CUSTOM_MONEY'
@@ -652,7 +655,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "custom_coins":
         await query.edit_message_text(
             "🪙 **Enter custom amount:**\n"
-            "Example: 100k or 50000",
+            "Example: 100k or 50000\n"
+            "Max: 500K",
             parse_mode='Markdown'
         )
         context.user_data['state'] = 'CUSTOM_COINS'
@@ -810,17 +814,32 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await menu_handlers[data](update, context)
         return
 
+# ============ KEEP-ALIVE THREAD ============
+
+def keep_alive():
+    """Keep the bot alive by pinging itself"""
+    while True:
+        time.sleep(300)  # Every 5 minutes
+        logger.info("Bot is still alive...")
+
 # ============ MAIN ============
 
 def main():
     """Main function to run the bot"""
+    # Start keep-alive thread
+    keep_alive_thread = Thread(target=keep_alive, daemon=True)
+    keep_alive_thread.start()
+    
+    # Create application
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("Bot started...")
+    # Start bot
+    logger.info("Bot started with keep-alive thread...")
     app.run_polling()
 
 if __name__ == "__main__":
