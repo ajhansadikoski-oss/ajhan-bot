@@ -231,10 +231,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.message.from_user.username or "N/A"
     first_name = update.message.from_user.first_name or "User"
 
+    # Ако е админ - админ панел
     if user_id == ADMIN_ID:
         await prikazi_admin_panel(update)
         return ADMIN_MENU
 
+    # ПРОВЕРКА ДАЛИ КОРИСНИКОТ ИМА ЛИЦЕНЦА
     conn = sqlite3.connect('licenci.db')
     cursor = conn.cursor()
     cursor.execute('SELECT istekuvanje, status FROM korisnici WHERE user_id = ?', (user_id,))
@@ -248,27 +250,51 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         istekuvanje_str = rezultat[0]
         status = rezultat[1]
         
+        # АКО Е ОДБИЕН
         if status == 'denied':
             await update.message.reply_text(
-                "❌ **Вашето барање е одбиено!**",
+                "❌ **Вашето барање е одбиено!**\n\n"
+                "Контактирајте го администраторот.",
                 parse_mode='Markdown'
             )
             return
         
+        # АКО ИМА ЛИЦЕНЦА - ПРОВЕРИ ДАЛИ Е ВАЛИДНА
         if istekuvanje_str == "forever":
             dozvolen = True
-        elif istekuvanje_str:
-            istekuvanje_datum = datetime.strptime(istekuvanje_str, "%Y-%m-%d %H:%M:%S")
-            dozvolen = sega < istekuvanje_datum
+        elif istekuvanje_str and istekuvanje_str != "None":
+            try:
+                istekuvanje_datum = datetime.strptime(istekuvanje_str, "%Y-%m-%d %H:%M:%S")
+                if sega < istekuvanje_datum:
+                    dozvolen = True
+                else:
+                    # ЛИЦЕНЦАТА ИСТЕКНА - СТАВИ STATUS EXPIRED
+                    conn = sqlite3.connect('licenci.db')
+                    cursor = conn.cursor()
+                    cursor.execute('UPDATE korisnici SET status = "expired" WHERE user_id = ?', (user_id,))
+                    conn.commit()
+                    conn.close()
+                    await update.message.reply_text(
+                        "❌ **Вашата лиценца истекна!**\n\n"
+                        "Контактирајте го администраторот за нова лиценца.",
+                        parse_mode='Markdown'
+                    )
+                    return
+            except:
+                pass
 
+    # АКО НЕМА ЛИЦЕНЦА ИЛИ НЕ Е ВАЛИДНА
     if not dozvolen:
+        # АКО ВЕЌЕ ИМА PENDING БАРАЊЕ
         if rezultat and rezultat[1] == 'pending':
             await update.message.reply_text(
-                "⏳ **Веќе имате испратено барање!**",
+                "⏳ **Веќе имате испратено барање!**\n\n"
+                "Почекајте администраторот да го одобри.",
                 parse_mode='Markdown'
             )
             return
         
+        # ЗАЧУВАЈ НОВО БАРАЊЕ
         conn = sqlite3.connect('licenci.db')
         cursor = conn.cursor()
         cursor.execute('''
@@ -278,13 +304,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         conn.close()
         
+        # ПОРАКА ДО КОРИСНИКОТ
         await update.message.reply_text(
             f"✅ **Барањето е испратено!**\n\n"
             f"👤 Корисник: @{username}\n"
-            f"🆔 ID: {user_id}",
+            f"🆔 ID: {user_id}\n\n"
+            f"📌 Почекајте администраторот да ве одобри.",
             parse_mode='Markdown'
         )
         
+        # ПОРАКА ДО АДМИНОТ
         tastatura = [
             [
                 InlineKeyboardButton("♾️ Forever", callback_data=f"lic_forever_{user_id}"),
@@ -304,12 +333,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=f"🔔 **НОВО БАРАЊЕ ЗА ПРИСТАП!**\n\n"
                  f"👤 **Корисник:** {first_name}\n"
                  f"🆔 **ID:** `{user_id}`\n"
-                 f"👤 **Username:** @{username}",
+                 f"👤 **Username:** @{username}\n"
+                 f"📅 **Датум:** {datetime.now().strftime('%d.%m.%Y %H:%M')}",
             reply_markup=InlineKeyboardMarkup(tastatura),
             parse_mode='Markdown'
         )
         return
 
+    # ✅ КОРИСНИКОТ ИМА ВАЛИДНА ЛИЦЕНЦА - ПРИКАЖИ GG МЕНИ
     await prikazi_gg_menu(update, context)
 
 # ========== GG МЕНИ ==========
@@ -326,11 +357,14 @@ async def prikazi_gg_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = rezultat[0] if rezultat else "N/A"
     istek = rezultat[1] if rezultat else "N/A"
     
-    if istek != "forever" and istek != "N/A":
+    if istek != "forever" and istek != "N/A" and istek:
         try:
             istek_datum = datetime.strptime(istek, "%Y-%m-%d %H:%M:%S")
             preostanato = istek_datum - datetime.now()
-            istek = f"{preostanato.days} дена"
+            if preostanato.days > 0:
+                istek = f"{preostanato.days} дена"
+            else:
+                istek = "ИСТЕКНА 🔴"
         except:
             pass
     
@@ -395,6 +429,35 @@ async def gg_funkcija(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_id = query.from_user.id
     funkcija = query.data.replace('gg_', '')
+    
+    # ПРОВЕРКА ДАЛИ КОРИСНИКОТ ИМА ВАЛИДНА ЛИЦЕНЦА
+    conn = sqlite3.connect('licenci.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT istekuvanje, status FROM korisnici WHERE user_id = ?', (user_id,))
+    rezultat = cursor.fetchone()
+    conn.close()
+    
+    if not rezultat or rezultat[1] != 'approved':
+        await query.edit_message_text(
+            "❌ **Немате активна лиценца!**\n\n"
+            "Напишете /start за да побарате пристап.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Провери дали лиценцата е истекната
+    if rezultat[0] != "forever" and rezultat[0]:
+        try:
+            istek_datum = datetime.strptime(rezultat[0], "%Y-%m-%d %H:%M:%S")
+            if datetime.now() > istek_datum:
+                await query.edit_message_text(
+                    "❌ **Вашата лиценца истекна!**\n\n"
+                    "Контактирајте го администраторот.",
+                    parse_mode='Markdown'
+                )
+                return
+        except:
+            pass
     
     funkcii = {
         'w16': 'W16 Motor', 'horns': 'Хорни', 'nodmg': 'Без Штета',
@@ -479,9 +542,7 @@ async def prikazi_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode='HTML'
         )
 
-# ===== НЕДОСТАСУВАЧКИ ФУНКЦИИ (ДОДАДЕНИ) =====
 async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Прикажи листа на корисници"""
     query = update.callback_query
     await query.answer()
     
@@ -514,7 +575,6 @@ async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def admin_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Бриши корисник"""
     query = update.callback_query
     await query.answer()
     
@@ -529,7 +589,6 @@ async def admin_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CEKA_BRISI_ID
 
 async def primi_id_za_brisenje(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Прими ID за бришење"""
     try:
         user_id = int(update.message.text.strip())
     except:
@@ -548,7 +607,6 @@ async def primi_id_za_brisenje(update: Update, context: ContextTypes.DEFAULT_TYP
     return ADMIN_MENU
 
 async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Статистика"""
     query = update.callback_query
     await query.answer()
     
@@ -577,7 +635,6 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def admin_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Барања за пари"""
     query = update.callback_query
     await query.answer()
     
@@ -636,8 +693,14 @@ async def licenca_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         
         await query.edit_message_text(f"❌ Корисникот {user_id} е одбиен.")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="❌ **Вашето барање за пристап е одбиено!**",
+            parse_mode='Markdown'
+        )
         return
     
+    # ОДОБРИ ЛИЦЕНЦА
     if akcija == "forever":
         istekuvanje = "forever"
         opis = "Forever ♾️"
@@ -655,15 +718,24 @@ async def licenca_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
     
-    await query.edit_message_text(f"✅ Корисникот {user_id} е одобрен! ({opis})")
-    
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=f"✅ **ДОБИВТЕ ПРИСТАП!** 🎉\n\n"
-             f"📅 Времетраење: {opis}\n\n"
-             f"🔑 Напишете /start за да почнете.",
-        parse_mode='Markdown'
+    # ПОРАКА ДО АДМИНОТ
+    await query.edit_message_text(
+        f"✅ **Корисникот {user_id} е одобрен!**\n"
+        f"📅 Времетраење: {opis}"
     )
+    
+    # ПОРАКА ДО КОРИСНИКОТ
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"✅ **ДОБИВТЕ ПРИСТАП!** 🎉\n\n"
+                 f"📅 Времетраење: {opis}\n"
+                 f"📆 Доделено: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+                 f"🔑 Напишете /start за да почнете.",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Грешка при праќање порака до {user_id}: {e}")
 
 async def primi_custom_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -690,6 +762,16 @@ async def primi_custom_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         
         await update.message.reply_text(f"✅ Custom лиценца доделена! ({days} дена)")
+        
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"✅ **ДОБИВТЕ ПРИСТАП!** 🎉\n\n"
+                 f"📅 Времетраење: {days} дена\n"
+                 f"📆 Истекува: {(datetime.now() + timedelta(days=days)).strftime('%d.%m.%Y %H:%M')}\n\n"
+                 f"🔑 Напишете /start за да почнете.",
+            parse_mode='Markdown'
+        )
+        
         del context.user_data['custom_user_id']
         await prikazi_admin_panel(update)
         
