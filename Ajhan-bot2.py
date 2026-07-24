@@ -123,7 +123,7 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("lic:"):
         delovi = data.split(":")
-        # ПОПРАВЕНО: Додадени се точните пајтон индекси [1] и [2]
+        # СРЕДЕНО: Точни позиции во листата за да не пука Python
         akcija = delovi[1]
         target_user_id = int(delovi[2])
         
@@ -241,4 +241,5 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
 
+# СРЕДЕН И ФИКСНАТ ЗАВРШЕН БЛОК
 if __name__ == '__main__':
