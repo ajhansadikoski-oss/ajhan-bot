@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Поставено: Твојот точен токен и твоето точно ADMIN ID
+# Твојот токен и твоето точно ADMIN ID
 BOT_TOKEN = "8674559116:AAFuZWJJLVY-qMAHBSr7Z6om686b1zeGxKc" 
 ADMIN_ID = 8694942406  
 
@@ -123,9 +123,9 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("lic:"):
         delovi = data.split(":")
-        # ПОПРАВЕНО: Додадени се точните позициски индекси за листата
+        # ПОПРАВЕНО: Додадени се точните пајтон индекси [1] и [2]
         akcija = delovi[1]
-        target_user_id = delovi[2]
+        target_user_id = int(delovi[2])
         
         conn = sqlite3.connect('Licenci.db')
         cursor = conn.cursor()
