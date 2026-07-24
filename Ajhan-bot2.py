@@ -12,6 +12,7 @@ from telegram.ext import (
     filters
 )
 
+# Конфигурирање на логирање
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -37,15 +38,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = sqlite3.connect('Licenci.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT data FROM licenci WHERE id = ?', (user.id,))
+    cursor.execute('SELECT data FROM licenci WHERE id = ?', (str(user.id),))
     rezultat = cursor.fetchone()
     conn.close()
 
     sega = datetime.now()
     dozvolen = False
 
-    if resultado:
-        istekuvanje_str = resultado
+    if rezultat:
+        istekuvanje_str = rezultat[0]
         if istekuvanje_str == "forever":
             dozvolen = True
         else:
@@ -87,12 +88,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "   **CPM AJHAN BOT v5.0**\n"
         "-------------------------------\n"
         "          **WELCOME**\n"
-        "👤 @{username}\n"
-        "🆔 `{user_id}`\n"
-        "📅 {datum_sega}\n"
+        f"👤 @{username}\n"
+        f"🆔 `{user.id}`\n"
+        f"📅 {datum_sega}\n"
         "-------------------------------\n"
         "🗝️ Успешно сте најавени во CPM ботот!"
-    ).format(username=username, user_id=user.id, datum_sega=datum_sega)
+    )
 
     keyboard = [[InlineKeyboardButton("📱 Отвори ...", callback_data="open_menu")]]
     
@@ -123,14 +124,14 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("lic:"):
         delovi = data.split(":")
-        akcija = delovi
-        target_user_id = int(delovi)
+        akcija = delovi[1]
+        target_user_id = int(delovi[2])
         
         conn = sqlite3.connect('Licenci.db')
         cursor = conn.cursor()
         
         if akcija == "deny":
-            cursor.execute('DELETE FROM licenci WHERE id = ?', (target_user_id,))
+            cursor.execute('DELETE FROM licenci WHERE id = ?', (str(target_user_id),))
             poraka = "❌ Вашето барање за лиценца е одбиено."
             admin_odgovor = f"❌ Го одбивте корисникот {target_user_id}"
         else:
@@ -138,17 +139,20 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 vrednost = "forever"
             elif akcija == "30":
                 vrednost = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
-            cursor.execute('INSERT OR REPLACE INTO licenci (id, data) VALUES (?, ?)', (target_user_id, vrednost))
+            else:
+                vrednost = "forever"
+            cursor.execute('INSERT OR REPLACE INTO licenci (id, data) VALUES (?, ?)', (str(target_user_id), vrednost))
             poraka = "✅ Администраторот ја одобри вашата лиценца! Напишете /start за пристап."
             admin_odgovor = f"✅ Одобрена лиценца ({akcija}) за {target_user_id}"
         
         conn.commit()
         conn.close()
+        
         try:
             await context.bot.send_message(chat_id=target_user_id, text=poraka)
             await query.edit_message_text(text=admin_odgovor)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Грешка при праќање порака: {e}")
         return
 
     if data == "cpm_signin":
@@ -228,10 +232,10 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "   **DASHBOARD**\n"
             "-------------------------------\n"
             "       **ACCOUNT**\n"
-            "📧 Email: `{}`\n"
+            f"📧 Email: `{email}`\n"
             "🔑 Лозинка: Скриена\n"
             "📢 Изберете опција од менито:"
-        ).format(email)
+        )
 
         keyboard = [
             [InlineKeyboardButton("💰 Money", callback_data="menu_money"), InlineKeyboardButton("🪙 Coins", callback_data="menu_coins")],
@@ -240,7 +244,20 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Грешка: {context.error}")
+    if update and update.effective_message:
+        await update.effective_message.reply_text("❌ Настана грешка. Обидете се повторно.")
+
 if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
+    
+    # Додавање на handlers
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(obraboti_klikovi))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, obraboti_tekst))
+    app.add_error_handler(error_handler)
+    
+    # Стартување на ботот
+    logger.info("Ботот стартува...")
+    app.run_polling()
