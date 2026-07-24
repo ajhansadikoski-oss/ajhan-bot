@@ -30,14 +30,26 @@ CPM_DATA = {
     'coins': 20400,
     'wins': 16,
     'losses': 0,
-    'levels': 900,
+    'levels': 109,
     'wheels': 112,
     'animations': 42,
     'friends': 0,
     'id': 'VY704074',
     'rank': 'Legendary',
     'cars': 15,
-    'houses': 3
+    'houses': 3,
+    'features': {
+        'w16': False,
+        'no_dmg': False,
+        'smoke': False,
+        'wheels': False,
+        'fuel': False,
+        'horns': False,
+        'anims': False,
+        'houses': False,
+        'rank': False,
+        'all_cars': False
+    }
 }
 
 # Cache for faster database access
@@ -278,25 +290,80 @@ async def menu_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    # Get feature status
+    features = CPM_DATA['features']
+    feature_status = {
+        'w16': '✅' if features['w16'] else '⬜',
+        'no_dmg': '✅' if features['no_dmg'] else '⬜',
+        'smoke': '✅' if features['smoke'] else '⬜',
+        'wheels': '✅' if features['wheels'] else '⬜',
+        'fuel': '✅' if features['fuel'] else '⬜',
+        'horns': '✅' if features['horns'] else '⬜',
+        'anims': '✅' if features['anims'] else '⬜',
+        'houses': '✅' if features['houses'] else '⬜',
+        'rank': '✅' if features['rank'] else '⬜',
+        'all_cars': '✅' if features['all_cars'] else '⬜'
+    }
+    
     text = (
         "**⚡ FEATURES**\n"
         "━━━━━━━━━━━━━━━━━━━\n"
         "Select a feature or UNLOCK ALL:\n"
+        f"{feature_status['w16']} W16\n"
+        f"{feature_status['no_dmg']} No Dmg\n"
+        f"{feature_status['smoke']} Smoke\n"
+        f"{feature_status['wheels']} Wheels\n"
+        f"{feature_status['fuel']} Fuel\n"
+        f"{feature_status['horns']} Horns\n"
+        f"{feature_status['anims']} Anims\n"
+        f"{feature_status['houses']} Houses\n"
+        f"{feature_status['rank']} Rank\n"
+        f"{feature_status['all_cars']} All Cars\n"
         f"📊 Levels: {CPM_DATA['levels']}/900 ⭐"
     )
     
     keyboard = [
-        [InlineKeyboardButton("🏎️ W16", callback_data="feature_w16"), InlineKeyboardButton("🛡️ No Dmg", callback_data="feature_no_dmg")],
-        [InlineKeyboardButton("💨 Smoke", callback_data="feature_smoke"), InlineKeyboardButton("⚙️ Wheels", callback_data="feature_wheels")],
-        [InlineKeyboardButton("📈 +50 Levels", callback_data="feature_levels_50"), InlineKeyboardButton("📈 +100 Levels", callback_data="feature_levels_100")],
-        [InlineKeyboardButton("⛽ Fuel", callback_data="feature_fuel"), InlineKeyboardButton("📯 Horns", callback_data="feature_horns")],
-        [InlineKeyboardButton("🎭 Anims", callback_data="feature_anims"), InlineKeyboardButton("🏠 Houses", callback_data="feature_houses")],
-        [InlineKeyboardButton("👑 Rank", callback_data="feature_rank"), InlineKeyboardButton("🚗 All Cars", callback_data="feature_all_cars")],
         [InlineKeyboardButton("🔓 UNLOCK ALL", callback_data="feature_unlock_all")],
         [InlineKeyboardButton("⬅️ Back", callback_data="main_menu")]
     ]
     
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def feature_unlock_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Unlock all features"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Unlock all features
+    for key in CPM_DATA['features']:
+        CPM_DATA['features'][key] = True
+    
+    # Update stats
+    CPM_DATA['levels'] = 900
+    CPM_DATA['cars'] = 50
+    CPM_DATA['houses'] = 10
+    CPM_DATA['rank'] = 'Legendary ★'
+    
+    success_text = (
+        "✅ **ALL FEATURES UNLOCKED!**\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "✅ W16\n"
+        "✅ No Dmg\n"
+        "✅ Smoke\n"
+        "✅ Wheels\n"
+        "✅ Fuel\n"
+        "✅ Horns\n"
+        "✅ Anims\n"
+        "✅ Houses\n"
+        "✅ Rank\n"
+        "✅ All Cars\n"
+        "✅ Levels: 900/900\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🎉 All features are now active!"
+    )
+    
+    keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]
+    await query.edit_message_text(text=success_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def menu_cars(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cars menu"""
@@ -644,6 +711,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ No request found. Type /start.", parse_mode='Markdown')
             return
 
+    # Handle feature unlocks
+    if data == "feature_unlock_all":
+        await feature_unlock_all(update, context)
+        return
+
     # Admin commands
     if data == "admin_panel":
         await start(update, context)
@@ -744,44 +816,4 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menu_handlers = {
         "menu_money": menu_money,
         "menu_coins": menu_coins,
-        "menu_features": menu_features,
-        "menu_cars": menu_cars,
-        "menu_houses": menu_houses,
-        "menu_rank": menu_rank,
-        "refresh_account": refresh_account,
-        "sign_out": sign_out,
-        "main_menu": main_menu,
-        "cpm_signin": cpm_signin,
-        "custom_money": lambda u, c: handle_custom_input(u, c, 'CUSTOM_MONEY', "💰 Enter amount:\nExample: 10m, 500k, or 1000000"),
-        "custom_coins": lambda u, c: handle_custom_input(u, c, 'CUSTOM_COINS', "🪙 Enter amount:\nExample: 100k or 50000"),
-    }
-    
-    if data in menu_handlers:
-        await menu_handlers[data](update, context)
-        return
-
-async def handle_custom_input(update: Update, context: ContextTypes.DEFAULT_TYPE, state, message):
-    """Handle custom input requests"""
-    query = update.callback_query
-    await query.answer()
-    
-    context.user_data['state'] = state
-    keyboard = [[InlineKeyboardButton("✘ Cancel", callback_data="main_menu")]]
-    await query.edit_message_text(text=message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-def main():
-    """Main function to run the bot"""
-    # Create application
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # Add handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    # Start bot
-    logger.info("Bot started...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+        "menu_features": menu
