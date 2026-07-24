@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Твојот токен и твоето точно ADMIN ID
+# Поставено: Твојот точен токен и твоето точно ADMIN ID
 BOT_TOKEN = "8674559116:AAFuZWJJLVY-qMAHBSr7Z6om686b1zeGxKc" 
 ADMIN_ID = 8694942406  
 
@@ -123,7 +123,7 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("lic:"):
         delovi = data.split(":")
-        # СРЕДЕНО: Точни позиции во листата за да не пука Python
+        # СРЕДЕНО: Коректни пајтон индекси со загради за да не пука серверот
         akcija = delovi[1]
         target_user_id = int(delovi[2])
         
@@ -241,5 +241,4 @@ async def obraboti_tekst(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
 
-# СРЕДЕН И ФИКСНАТ ЗАВРШЕН БЛОК
-if __name__ == '__main__':
+# Точниот извршен блок
