@@ -9,7 +9,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 # Заштита на токен
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN") or "8674559116:AAFZfZpBUsHXDowKuC1_UzDeSt6CvdV4"
-ADMIN_ID = 8694942406  # Твојот ID од сликата
+ADMIN_ID = int(os.getenv("ADMIN_ID", 8694942406))
 
 # Логирање
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -30,21 +30,17 @@ def save_db(db):
 
 # --- ФУНКЦИИ ЗА ПРОВЕРКА НА ПРИСТАП ---
 def check_access(user_id: int) -> tuple:
-    """Враќа (has_access, reason, expiry_date)"""
     db = load_db()
     user_id_str = str(user_id)
     
-    # Ако е администратор - секогаш има пристап
     if user_id == ADMIN_ID:
         return True, "admin", None
     
-    # Провери дали е блокиран
     if user_id_str in db["users"]:
         user_data = db["users"][user_id_str]
         if user_data.get("banned", False):
             return False, "banned", None
         
-        # Провери дали му истекол пристапот
         expiry = user_data.get("expiry")
         if expiry:
             expiry_date = datetime.fromisoformat(expiry)
@@ -68,9 +64,6 @@ def cpm_set_money(amount: int) -> str:
 def cpm_unlock_all() -> str:
     return "✅ Отклучено: W16, Smoke, Horns, No Damage, Unlimited Fuel, Animations, Wheels, Houses"
 
-def cpm_chrome_all() -> str:
-    return "✅ Хром на сите делови"
-
 def cpm_unlock_car(car_id: str) -> str:
     return f"🚗 Отклучен автомобил со ID: {car_id}"
 
@@ -82,12 +75,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     has_access, status, expiry = check_access(user_id)
     
-    # АКО Е АДМИН
     if is_admin(user_id):
         await show_admin_panel(update, context)
         return
     
-    # АКО НЕМА ПРИСТАП
     if not has_access:
         if status == "banned":
             await update.message.reply_text(
@@ -102,15 +93,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 "Побарајте повторно дозвола од администраторот.",
                 parse_mode="Markdown"
             )
-            # Автоматски испрати ново барање
             await request_access(update, context)
             return
         else:
-            # Нема пристап - прати барање
             await request_access(update, context)
             return
     
-    # ИМА ПРИСТАП - ПРИКАЖИ ГЛАВНО МЕНИ
     expiry_text = f"⏳ Истекува: {expiry.strftime('%d.%m.%Y %H:%M')}" if expiry else "♾️ Вечен пристап"
     keyboard = [
         [InlineKeyboardButton("💰 Economy", callback_data="economy")],
@@ -144,7 +132,6 @@ async def request_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     first_name = user.first_name or "No Name"
     last_name = user.last_name or ""
     
-    # Провери дали веќе има pending барање
     db = load_db()
     pending = db.get("pending", [])
     
@@ -156,7 +143,6 @@ async def request_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
     
-    # Додај во pending листата
     pending.append({
         "id": user_id,
         "username": username,
@@ -167,7 +153,6 @@ async def request_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     db["pending"] = pending
     save_db(db)
     
-    # Испрати потврда на корисникот
     await update.message.reply_text(
         "📨 **Барањето за пристап е испратено!**\n"
         "Администраторот ќе ве одобри наскоро.\n"
@@ -175,7 +160,6 @@ async def request_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         parse_mode="Markdown"
     )
     
-    # Испрати известување до админот
     await context.bot.send_message(
         chat_id=ADMIN_ID,
         text=f"🔔 **Ново барање за пристап!**\n"
@@ -215,7 +199,6 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     )
 
 async def admin_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/approve <user_id> <traenje>"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Само администратор!")
         return
@@ -231,9 +214,7 @@ async def admin_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     
     user_id = int(args[0])
     duration = args[1].lower()
-    custom_date = None
     
-    # Парсирај траење
     if duration == "forever":
         expiry = None
     elif duration == "30d":
@@ -242,8 +223,7 @@ async def admin_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         expiry = datetime.now() + timedelta(days=7)
     elif duration == "custom" and len(args) >= 3:
         try:
-            custom_date = datetime.strptime(args[2], "%Y-%m-%d")
-            expiry = custom_date
+            expiry = datetime.strptime(args[2], "%Y-%m-%d")
         except:
             await update.message.reply_text("❌ Формат за custom: `YYYY-MM-DD` (на пр. 2026-12-31)")
             return
@@ -251,12 +231,10 @@ async def admin_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("❌ Непознато траење. Користи: forever, 30d, 7d, custom")
         return
     
-    # Отстрани од pending
     db = load_db()
     pending = db.get("pending", [])
     db["pending"] = [p for p in pending if p["id"] != user_id]
     
-    # Додај во users
     user_info = None
     for p in pending:
         if p["id"] == user_id:
@@ -264,9 +242,7 @@ async def admin_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             break
     
     if not user_info:
-        # Ако нема во pending, провери дали е веќе корисник
         if str(user_id) in db["users"]:
-            # Ажурирај го постоечкиот
             db["users"][str(user_id)]["expiry"] = expiry.isoformat() if expiry else None
             db["users"][str(user_id)]["banned"] = False
             save_db(db)
@@ -286,7 +262,6 @@ async def admin_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     }
     save_db(db)
     
-    # Извести го корисникот
     expiry_text = "♾️ вечен" if not expiry else f"до {expiry.strftime('%d.%m.%Y %H:%M')}"
     await context.bot.send_message(
         chat_id=user_id,
@@ -299,7 +274,6 @@ async def admin_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(f"✅ Корисникот {user_id} е одобрен! Пристап {expiry_text}")
 
 async def admin_deny(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/deny <user_id>"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Само администратор!")
         return
@@ -311,17 +285,14 @@ async def admin_deny(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     
     user_id = int(args[0])
     
-    # Отстрани од pending и users (ако постои)
     db = load_db()
     pending = db.get("pending", [])
     db["pending"] = [p for p in pending if p["id"] != user_id]
     
-    # Ако е во users, блокирај го
     if str(user_id) in db["users"]:
         db["users"][str(user_id)]["banned"] = True
     save_db(db)
     
-    # Извести го корисникот
     await context.bot.send_message(
         chat_id=user_id,
         text="❌ **Вашето барање е одбиено!**\nКонтактирајте го администраторот.",
@@ -331,7 +302,6 @@ async def admin_deny(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(f"❌ Барањето на {user_id} е одбиено.")
 
 async def admin_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/ban <user_id> - блокирај корисник"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Само администратор!")
         return
@@ -356,7 +326,6 @@ async def admin_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("❌ Корисникот не е пронајден.")
 
 async def admin_unban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/unban <user_id> - одблокирај корисник"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Само администратор!")
         return
@@ -380,14 +349,13 @@ async def admin_unban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     else:
         await update.message.reply_text("❌ Корисникот не е пронајден.")
 
-# --- BUTTON HANDLER (исто како претходно, но со проверка на пристап) ---
+# --- BUTTON HANDLER ---
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     data = query.data
     
-    # АДМИН КАЛБЕКИ
     if data == "admin_pending":
         if not is_admin(user_id):
             await query.edit_message_text("❌ Не сте администратор!")
@@ -439,7 +407,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.edit_message_text(text, parse_mode="Markdown")
         return
     
-    # --- ПРОВЕРКА НА ПРИСТАП ЗА ОСТАНАТИТЕ ФУНКЦИИ ---
     has_access, status, expiry = check_access(user_id)
     if not has_access:
         if status == "banned":
@@ -450,7 +417,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.edit_message_text("❌ Немате пристап. Пратете /start за да побарате дозвола.", parse_mode="Markdown")
         return
     
-    # --- ОСТАНАТИТЕ ФУНКЦИИ (исти како претходно) ---
     if data == "economy":
         await query.edit_message_text(
             "💰 **Economy**\n"
@@ -579,15 +545,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.edit_message_text("🔧 Браници отстранети", parse_mode="Markdown")
     
     elif data == "back_main":
-        # Рестартирај го менито
         await start(update, context)
 
-# --- TEXT HANDLER (исто со проверка на пристап) ---
+# --- TEXT HANDLER ---
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     user_text = update.message.text.strip()
     
-    # Провери пристап
     has_access, status, _ = check_access(user_id)
     if not has_access:
         await update.message.reply_text("❌ Немате пристап до оваа функција. Пратете /start за да побарате дозвола.")
@@ -595,7 +559,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     awaiting = context.user_data.get("awaiting", "")
     
-    # ECONOMY
     if awaiting == "economy":
         if user_text.startswith("setcoins"):
             try:
@@ -612,7 +575,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         else:
             await update.message.reply_text("❌ Користи `setcoins` или `setmoney`", parse_mode="Markdown")
     
-    # CAR UNLOCK
     elif awaiting == "car_unlock":
         if user_text.startswith("unlockcar"):
             car_id = user_text.replace("unlockcar", "").strip()
@@ -622,7 +584,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         else:
             await update.message.reply_text("❌ Користи `unlockcar ID` или `unlockallcars`", parse_mode="Markdown")
     
-    # COPY VINYLS
     elif awaiting == "copy_vinyls":
         if user_text.startswith("copyvinyl"):
             parts = user_text.split()
@@ -633,7 +594,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         elif user_text.startswith("copyvinylall"):
             await update.message.reply_text("🎨 Винили копирани на сите автомобили")
     
-    # COPY CARS
     elif awaiting == "copy_cars":
         if user_text.startswith("copycar"):
             parts = user_text.split()
@@ -645,13 +605,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             acc = user_text.replace("copyallcars", "").strip()
             await update.message.reply_text(f"📋 Сите автомобили копирани во {acc}")
     
-    # CLONE ACCOUNT
     elif awaiting == "clone_account":
         if user_text.startswith("clone"):
             target = user_text.replace("clone", "").strip()
             await update.message.reply_text(f"👤 Акаунт клониран во {target}")
     
-    # SIREN
     elif awaiting == "siren":
         if user_text.startswith("siren"):
             car_id = user_text.replace("siren", "").strip()
@@ -659,13 +617,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         elif user_text.startswith("sirenall"):
             await update.message.reply_text("🚨 Сирени на сите автомобили")
     
-    # BUMPER SPECIFIC
     elif awaiting == "bumper_specific":
         if user_text.startswith("removebumper"):
             car_id = user_text.replace("removebumper", "").strip()
             await update.message.reply_text(f"🔧 Браници отстранети од автомобил {car_id}")
     
-    # ACCOUNT SETTINGS
     elif awaiting.startswith("acc_"):
         await update.message.reply_text(f"✅ {awaiting} променето во: {user_text}")
     
@@ -674,28 +630,34 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     context.user_data["awaiting"] = ""
 
-# --- ГЛАВНА ФУНКЦИЈА ---
+# --- ГЛАВНА ФУНКЦИЈА (ПОПРАВЕНА ЗА RENDER) ---
 def main():
     app = Application.builder().token(TOKEN).build()
     
-    # Команди
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("approve", admin_approve))
     app.add_handler(CommandHandler("deny", admin_deny))
     app.add_handler(CommandHandler("ban", admin_ban))
     app.add_handler(CommandHandler("unban", admin_unban))
     
-    # Handler-и
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     
-    # Render webhook
     port = int(os.environ.get("PORT", 8443))
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'localhost')}/webhook"
-    )
+    
+    # ⭐ КЛУЧНО: Земете го Render URL-то
+    render_url = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+    if render_url:
+        webhook_url = f"https://{render_url}/webhook"
+        print(f"✅ Ботот стартува на webhook: {webhook_url}")
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            webhook_url=webhook_url
+        )
+    else:
+        print("⚠️ Локален режим (polling)")
+        app.run_polling()
 
 if __name__ == "__main__":
     main()
