@@ -1,3 +1,4 @@
+import os
 import logging
 import sqlite3
 from datetime import datetime, timedelta
@@ -5,8 +6,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # ===== НАСТРОЙКИ =====
-TOKEN = "ТУК_СЛАГАШ_ТВОЯ_TELEGRAM_BOT_TOKEN"
-ADMIN_IDS = [123456789]  # Тук слагаш твоето Telegram ID (като число)
+TOKEN = "8674559116:AAFuzWJJLVY-qMAHBSr7Z6om686b1zeGxKc"  # Твоят токен от BotFather
+ADMIN_IDS = [8694942406]  # Твоето ID от User Info бота
 
 # ===== БАЗА ДАННИ =====
 def init_db():
