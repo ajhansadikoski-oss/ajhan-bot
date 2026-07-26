@@ -5,8 +5,11 @@ from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-# ⭐ Токенот се чита од Render Environment Variables (или користи го новиот)
-TOKEN = os.environ.get("BOT_TOKEN", "8674559116:AAGY9DWMI7nSQd_z8sYMUpKvc-SYI3CRBGW")
+# ⭐ БЕЗБЕДНО: Токенот се чита САМО од Environment Variables
+TOKEN = os.environ.get("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("❌ BOT_TOKEN не е поставен! Додај го во Environment Variables на Render.")
+
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 8694942406))
 
 # Логирање
