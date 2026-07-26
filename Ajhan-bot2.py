@@ -220,6 +220,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+# ===== ПАРКИНГ МЕНИ =====
 async def parking_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -306,10 +307,51 @@ async def parking_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def parking_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    # Врати се на главното мени
-    await start(update, context)
+    # Врати се на главното мени - повтори го start
+    user_id = query.from_user.id
+    username = query.from_user.username or "Nema Username"
+    first_name = query.from_user.first_name
+    
+    conn = sqlite3.connect('licenci.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT istekuvanje FROM korisnici WHERE user_id = ?', (user_id,))
+    rezultat = cursor.fetchone()
+    conn.close()
 
-# ===== CPM КОМАНДИ (од твојот стар код) =====
+    sega = datetime.now()
+    dozvolen = False
+
+    if rezultat:
+        istekuvanje_str = rezultat[0]
+        if istekuvanje_str == "forever":
+            dozvolen = True
+        else:
+            try:
+                istekuvanje_datum = datetime.strptime(istekuvanje_str, "%Y-%m-%d %H:%M:%S")
+                dozvolen = sega < istekuvanje_datum
+            except Exception: pass
+
+    datum_sega = sega.strftime("%d %b %Y • %I:%M %p")
+    welcome_text = (
+        "--------------------------------------------------\n"
+        "🎮 **CPM_AJHAN_BOT v5.0**\n"
+        "--------------------------------------------------\n\n"
+        "              **WELCOME**              \n"
+        "┌───────────────────┐\n"
+        "  👤 @{username}\n"
+        "  🆔 `{user_id}`\n"
+        "  📅 {datum_sega}\n"
+        "└───────────────────┘\n\n"
+        "▶ _Избери опција:_"
+    ).format(username=username, user_id=user_id, datum_sega=datum_sega)
+
+    keyboard = [
+        [InlineKeyboardButton("🔐 CPM Sign In", callback_data='cpm_signin')],
+        [InlineKeyboardButton("🚗 Паркинг систем", callback_data='parking_menu')]
+    ]
+    await query.edit_message_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+# ===== CPM КОМАНДИ =====
 async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -338,7 +380,7 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception: pass
         return
 
-    # ПАРКИНГ МЕНИ
+    # ПАРКИНГ
     if data == 'parking_menu':
         await parking_menu(update, context)
         return
@@ -363,7 +405,7 @@ async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await parking_back(update, context)
         return
 
-    # CPM ФУНКЦИИ (од твојот стар код)
+    # CPM
     if data == 'cpm_signin':
         email_text = (
             "--------------------------------------------------\n"
