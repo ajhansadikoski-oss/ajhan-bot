@@ -1,600 +1,701 @@
+import os
+import json
 import logging
-import sqlite3
-import asyncio
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    ContextTypes,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    filters,
-    ConversationHandler
-)
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-# ===== LOGGING =====
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# Заштита на токен
+load_dotenv()
+TOKEN = os.getenv("BOT_TOKEN") or "8674559116:AAFZfZpBUsHXDowKuC1_UzDeSt6CvdV4"
+ADMIN_ID = 8694942406  # Твојот ID од сликата
+
+# Логирање
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ===== НАСТРОЙКИ =====
-BOT_TOKEN = "8674559116:AAFuzWJJLVY-qMAHBSr7Z6om686b1zeGxKc"
-ADMIN_ID = 8694942406
+# --- JSON БАЗА ЗА КОРИСНИЦИ ---
+DB_FILE = "users_db.json"
 
-# ===== КОНВЕРЗАЦИСКИ СОСТОЈБИ =====
-CEKA_EMAIL, CEKA_PASSWORD, GLAVNO_MENI = range(3)
+def load_db():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, "r") as f:
+            return json.load(f)
+    return {"users": {}, "pending": []}
 
-# ===== БАЗА ЗА ЛИЦЕНЦИ =====
-def inicijaliziraj_baza():
-    conn = sqlite3.connect('licenci.db')
-    cursor = conn.cursor()
-    cursor.execute('CREATE TABLE IF NOT EXISTS korisnici (user_id INTEGER PRIMARY KEY, istekuvanje TEXT)')
-    conn.commit()
-    conn.close()
+def save_db(db):
+    with open(DB_FILE, "w") as f:
+        json.dump(db, f, indent=2)
 
-inicijaliziraj_baza()
-
-# ===== БАЗА ЗА ПАРКИНГ =====
-def init_parking_db():
-    conn = sqlite3.connect('parking.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS parking_users (
-        user_id INTEGER PRIMARY KEY,
-        username TEXT,
-        full_name TEXT,
-        car_number TEXT
-    )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS parking_reservations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        spot_number INTEGER,
-        car_number TEXT,
-        start_time TEXT,
-        end_time TEXT,
-        status TEXT DEFAULT 'active'
-    )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS parking_spots (
-        spot_number INTEGER PRIMARY KEY,
-        is_occupied INTEGER DEFAULT 0
-    )''')
-    for i in range(1, 21):
-        c.execute('INSERT OR IGNORE INTO parking_spots (spot_number) VALUES (?)', (i,))
-    conn.commit()
-    conn.close()
-
-init_parking_db()
-
-# ===== ПАРКИНГ ФУНКЦИИ =====
-def get_free_spots():
-    try:
-        conn = sqlite3.connect('parking.db')
-        c = conn.cursor()
-        c.execute('SELECT spot_number FROM parking_spots WHERE is_occupied = 0')
-        spots = [row[0] for row in c.fetchall()]
-        conn.close()
-        return spots
-    except Exception as e:
-        logger.error(f"get_free_spots error: {e}")
-        return []
-
-def occupy_spot(spot_number, user_id, car_number, hours):
-    try:
-        conn = sqlite3.connect('parking.db')
-        c = conn.cursor()
-        start_time = datetime.now().isoformat()
-        end_time = (datetime.now() + timedelta(hours=hours)).isoformat()
-        c.execute('INSERT INTO parking_reservations (user_id, spot_number, car_number, start_time, end_time) VALUES (?, ?, ?, ?, ?)',
-                  (user_id, spot_number, car_number, start_time, end_time))
-        c.execute('UPDATE parking_spots SET is_occupied = 1 WHERE spot_number = ?', (spot_number,))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        logger.error(f"occupy_spot error: {e}")
-        return False
-
-def get_active_reservations(user_id):
-    try:
-        conn = sqlite3.connect('parking.db')
-        c = conn.cursor()
-        c.execute('SELECT * FROM parking_reservations WHERE user_id = ? AND status = "active"', (user_id,))
-        res = c.fetchall()
-        conn.close()
-        return res
-    except Exception as e:
-        logger.error(f"get_active_reservations error: {e}")
-        return []
-
-def free_spot(reservation_id):
-    try:
-        conn = sqlite3.connect('parking.db')
-        c = conn.cursor()
-        c.execute('SELECT spot_number FROM parking_reservations WHERE id = ?', (reservation_id,))
-        spot = c.fetchone()
-        if spot:
-            c.execute('UPDATE parking_spots SET is_occupied = 0 WHERE spot_number = ?', (spot[0],))
-            c.execute('UPDATE parking_reservations SET status = "completed" WHERE id = ?', (reservation_id,))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        logger.error(f"free_spot error: {e}")
-        return False
-
-def register_parking_user(user_id, username, full_name):
-    try:
-        conn = sqlite3.connect('parking.db')
-        c = conn.cursor()
-        c.execute('INSERT OR IGNORE INTO parking_users (user_id, username, full_name) VALUES (?, ?, ?)',
-                  (user_id, username, full_name))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"register_parking_user error: {e}")
-
-def update_car(user_id, car_number):
-    try:
-        conn = sqlite3.connect('parking.db')
-        c = conn.cursor()
-        c.execute('UPDATE parking_users SET car_number = ? WHERE user_id = ?', (car_number, user_id))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"update_car error: {e}")
-
-def get_user_car(user_id):
-    try:
-        conn = sqlite3.connect('parking.db')
-        c = conn.cursor()
-        c.execute('SELECT car_number FROM parking_users WHERE user_id = ?', (user_id,))
-        result = c.fetchone()
-        conn.close()
-        return result[0] if result else None
-    except Exception as e:
-        logger.error(f"get_user_car error: {e}")
-        return None
-
-# ===== КОМАНДИ =====
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    username = update.message.from_user.username or "Nema Username"
-    first_name = update.message.from_user.first_name
+# --- ФУНКЦИИ ЗА ПРОВЕРКА НА ПРИСТАП ---
+def check_access(user_id: int) -> tuple:
+    """Враќа (has_access, reason, expiry_date)"""
+    db = load_db()
+    user_id_str = str(user_id)
     
-    # Регистрирај за паркинг
-    register_parking_user(user_id, username, first_name)
-
-    # Провери лиценца
-    conn = sqlite3.connect('licenci.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT istekuvanje FROM korisnici WHERE user_id = ?', (user_id,))
-    rezultat = cursor.fetchone()
-    conn.close()
-
-    sega = datetime.now()
-    dozvolen = False
-
-    if rezultat:
-        istekuvanje_str = rezultat[0]
-        if istekuvanje_str == "forever":
-            dozvolen = True
-        else:
-            try:
-                istekuvanje_datum = datetime.strptime(istekuvanje_str, "%Y-%m-%d %H:%M:%S")
-                dozvolen = sega < istekuvanje_datum
-            except Exception: pass
-
-    if not dozvolen:
-        await update.message.reply_text("❌ Немаш активна лиценца.\nБарањето за пристап е испратено до сопственикот.")
-        tastatura = [
-            [InlineKeyboardButton("♾️ Forever", callback_data=f"lic_forever_{user_id}"), InlineKeyboardButton("📅 30 Days", callback_data=f"lic_30_{user_id}")],
-            [InlineKeyboardButton("📅 7 Days", callback_data=f"lic_7_{user_id}"), InlineKeyboardButton("❌ Deny", callback_data=f"lic_deny_{user_id}")]
-        ]
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"🔔 **Барање за пристап** од {first_name} (@{username})\nID: `{user_id}`",
-            reply_markup=InlineKeyboardMarkup(tastatura),
-            parse_mode='Markdown'
-        )
-        return
-
-    datum_sega = sega.strftime("%d %b %Y • %I:%M %p")
-    welcome_text = (
-        "--------------------------------------------------\n"
-        "🎮 **CPM_AJHAN_BOT v5.0**\n"
-        "--------------------------------------------------\n\n"
-        "              **WELCOME**              \n"
-        "┌───────────────────┐\n"
-        "  👤 @{username}\n"
-        "  🆔 `{user_id}`\n"
-        "  📅 {datum_sega}\n"
-        "└───────────────────┘\n\n"
-        "▶ _Избери опција:_"
-    ).format(username=username, user_id=user_id, datum_sega=datum_sega)
-
-    keyboard = [
-        [InlineKeyboardButton("🔐 CPM Sign In", callback_data='cpm_signin')],
-        [InlineKeyboardButton("🚗 Паркинг систем", callback_data='parking_menu')]
-    ]
-    await update.message.reply_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-# ===== ПАРКИНГ МЕНИ =====
-async def parking_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
+    # Ако е администратор - секогаш има пристап
+    if user_id == ADMIN_ID:
+        return True, "admin", None
     
-    keyboard = [
-        [InlineKeyboardButton("🚗 Виж слободни места", callback_data='parking_free')],
-        [InlineKeyboardButton("📝 Регистрирај кола", callback_data='parking_register_car')],
-        [InlineKeyboardButton("📋 Мои резервации", callback_data='parking_my_res')],
-        [InlineKeyboardButton("🆘 Помош", callback_data='parking_help')],
-        [InlineKeyboardButton("◀ Назад", callback_data='parking_back')]
-    ]
-    
-    await query.edit_message_text(
-        "🚗 **ПАРКИНГ СИСТЕМ**\n"
-        "--------------------------------------------------\n\n"
-        "Добредојде во системот за паркинг!\n"
-        "Избери опција:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-async def parking_free(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    free = get_free_spots()
-    if free:
-        text = f"🟢 Слободни места: {', '.join(map(str, free))}\n\n"
-        text += "За резервација напиши:\n/reserve [број] [часови]\n"
-        text += "Пример: /reserve 5 2"
-    else:
-        text = "🔴 Нема слободни места!"
-    
-    keyboard = [[InlineKeyboardButton("◀ Назад", callback_data='parking_menu')]]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def parking_register_car(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    await query.edit_message_text(
-        "📝 Внеси го бројот на колата.\n"
-        "Пример: CA1234AB\n\n"
-        "Користи команда: /setcar [број]\n\n"
-        "На пример: /setcar SK1234AB"
-    )
-
-async def parking_my_res(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    
-    res = get_active_reservations(user_id)
-    if res:
-        text = "📋 Твоите резервации:\n\n"
-        for r in res:
-            text += f"📍 Место {r[2]} | Кола: {r[3]}\n"
-            text += f"⏰ До: {r[5][:16]}\n"
-            text += f"🆔 ID: {r[0]}\n\n"
-        text += "За ослободување: /free [ID]"
-    else:
-        text = "Немаш активни резервации."
-    
-    keyboard = [[InlineKeyboardButton("◀ Назад", callback_data='parking_menu')]]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def parking_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    help_text = (
-        "📖 **Помош за паркинг:**\n\n"
-        "/reserve [место] [часови] - Резервирај место\n"
-        "/free [ID] - Ослободи резервација\n"
-        "/setcar [број] - Внеси број на кола\n"
-        "/myres - Мои резервации\n"
-        "/spots - Слободни места\n\n"
-        "Пример: /reserve 5 2 (за 2 часа)"
-    )
-    keyboard = [[InlineKeyboardButton("◀ Назад", callback_data='parking_menu')]]
-    await query.edit_message_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def parking_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    # Врати се на главното мени - повтори го start
-    user_id = query.from_user.id
-    username = query.from_user.username or "Nema Username"
-    first_name = query.from_user.first_name
-    
-    conn = sqlite3.connect('licenci.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT istekuvanje FROM korisnici WHERE user_id = ?', (user_id,))
-    rezultat = cursor.fetchone()
-    conn.close()
-
-    sega = datetime.now()
-    dozvolen = False
-
-    if rezultat:
-        istekuvanje_str = rezultat[0]
-        if istekuvanje_str == "forever":
-            dozvolen = True
-        else:
-            try:
-                istekuvanje_datum = datetime.strptime(istekuvanje_str, "%Y-%m-%d %H:%M:%S")
-                dozvolen = sega < istekuvanje_datum
-            except Exception: pass
-
-    datum_sega = sega.strftime("%d %b %Y • %I:%M %p")
-    welcome_text = (
-        "--------------------------------------------------\n"
-        "🎮 **CPM_AJHAN_BOT v5.0**\n"
-        "--------------------------------------------------\n\n"
-        "              **WELCOME**              \n"
-        "┌───────────────────┐\n"
-        "  👤 @{username}\n"
-        "  🆔 `{user_id}`\n"
-        "  📅 {datum_sega}\n"
-        "└───────────────────┘\n\n"
-        "▶ _Избери опција:_"
-    ).format(username=username, user_id=user_id, datum_sega=datum_sega)
-
-    keyboard = [
-        [InlineKeyboardButton("🔐 CPM Sign In", callback_data='cpm_signin')],
-        [InlineKeyboardButton("🚗 Паркинг систем", callback_data='parking_menu')]
-    ]
-    await query.edit_message_text(text=welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-# ===== CPM КОМАНДИ =====
-async def obraboti_klikovi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-
-    # ЛИЦЕНЦИ
-    if data.startswith("lic_"):
-        if query.from_user.id != ADMIN_ID: return
-        delovi = data.split("_")
-        akcija, target_user_id = delovi[1], int(delovi[2])
-        conn = sqlite3.connect('licenci.db')
-        cursor = conn.cursor()
-        if akcija == "deny":
-            cursor.execute('DELETE FROM korisnici WHERE user_id = ?', (target_user_id,))
-            tekst, poraka = "❌ Одбиен", "❌ Твоето барање е одбиено."
-        else:
-            if akcija == "forever": vrednost, tekst = "forever", "✅ Одобрен засекогаш"
-            elif akcija == "30": vrednost, tekst = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S"), "✅ Одобрен на 30 дена"
-            elif akcija == "7": vrednost, tekst = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S"), "✅ Одобрен на 7 дена"
-            cursor.execute('INSERT OR REPLACE INTO korisnici (user_id, istekuvanje) VALUES (?, ?)', (target_user_id, vrednost))
-            poraka = f"🎉 Администраторот ти одобри пристап {tekst}! Стисни /start за да почнеш."
-        conn.commit()
-        conn.close()
-        await query.edit_message_text(text=f"{query.message.text}\n\nСтатус: {tekst}")
-        try: await context.bot.send_message(chat_id=target_user_id, text=poraka)
-        except Exception: pass
-        return
-
-    # ПАРКИНГ
-    if data == 'parking_menu':
-        await parking_menu(update, context)
-        return
-    
-    if data == 'parking_free':
-        await parking_free(update, context)
-        return
-    
-    if data == 'parking_register_car':
-        await parking_register_car(update, context)
-        return
-    
-    if data == 'parking_my_res':
-        await parking_my_res(update, context)
-        return
-    
-    if data == 'parking_help':
-        await parking_help(update, context)
-        return
-    
-    if data == 'parking_back':
-        await parking_back(update, context)
-        return
-
-    # CPM
-    if data == 'cpm_signin':
-        email_text = (
-            "--------------------------------------------------\n"
-            "📧 **ENTER EMAIL**\n"
-            "--------------------------------------------------\n\n"
-            "Type your CPM email:"
-        )
-        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data='cpm_cancel')]]
-        await query.edit_message_text(text=email_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        context.user_data['состојба'] = 'чека_емаил'
-        return
-
-    if data == 'cpm_cancel':
-        context.user_data.clear()
-        await query.edit_message_text(text="❌ Процесот е откажан. Пишете /start за почеток.")
-        return
-
-    if data == 'vnes_uspesen':
-        dashboard_text = (
-            "--------------------------------------------------\n"
-            "🗂️ **DASHBOARD**\n"
-            "--------------------------------------------------\n\n"
-            "       **ACCOUNT**       \n"
-            "📧 `{email}`\n"
-            "👤 {first_name}\n\n"
-            "▶ _Select an option below:_"
-        ).format(email=context.user_data.get('cpm_email', 'N/A'), first_name=query.from_user.first_name)
+    # Провери дали е блокиран
+    if user_id_str in db["users"]:
+        user_data = db["users"][user_id_str]
+        if user_data.get("banned", False):
+            return False, "banned", None
         
-        keyboard = [
-            [InlineKeyboardButton("💰 Money", callback_data='meni_money'), InlineKeyboardButton("🪙 Coins", callback_data='meni_coins')],
-            [InlineKeyboardButton("⚡ Features", callback_data='meni_features')],
-            [InlineKeyboardButton("🚪 Sign Out", callback_data='cpm_cancel')]
-        ]
-        await query.edit_message_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        return
+        # Провери дали му истекол пристапот
+        expiry = user_data.get("expiry")
+        if expiry:
+            expiry_date = datetime.fromisoformat(expiry)
+            if datetime.now() > expiry_date:
+                return False, "expired", expiry_date
+        
+        return True, "active", expiry
+    
+    return False, "no_access", None
 
-    if data == 'meni_money':
-        money_text = (
-            "--------------------------------------------------\n"
-            "💰 **MONEY**\n"
-            "--------------------------------------------------\n\n"
-            "Max: $50,000,000"
+def is_admin(user_id: int) -> bool:
+    return user_id == ADMIN_ID
+
+# --- CPM ФУНКЦИИ (симулација) ---
+def cpm_set_coins(amount: int) -> str:
+    return f"✅ Coins поставени на {amount}"
+
+def cpm_set_money(amount: int) -> str:
+    return f"✅ Money поставен на {amount}"
+
+def cpm_unlock_all() -> str:
+    return "✅ Отклучено: W16, Smoke, Horns, No Damage, Unlimited Fuel, Animations, Wheels, Houses"
+
+def cpm_chrome_all() -> str:
+    return "✅ Хром на сите делови"
+
+def cpm_unlock_car(car_id: str) -> str:
+    return f"🚗 Отклучен автомобил со ID: {car_id}"
+
+# --- КОМАНДА /START ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = user.id
+    username = user.username or user.first_name
+    
+    has_access, status, expiry = check_access(user_id)
+    
+    # АКО Е АДМИН
+    if is_admin(user_id):
+        await show_admin_panel(update, context)
+        return
+    
+    # АКО НЕМА ПРИСТАП
+    if not has_access:
+        if status == "banned":
+            await update.message.reply_text(
+                "🚫 **Вие сте блокирани од користење на овој бот!**\n"
+                "Контактирајте го администраторот.",
+                parse_mode="Markdown"
+            )
+            return
+        elif status == "expired":
+            await update.message.reply_text(
+                "⏰ **Вашиот пристап истече!**\n"
+                "Побарајте повторно дозвола од администраторот.",
+                parse_mode="Markdown"
+            )
+            # Автоматски испрати ново барање
+            await request_access(update, context)
+            return
+        else:
+            # Нема пристап - прати барање
+            await request_access(update, context)
+            return
+    
+    # ИМА ПРИСТАП - ПРИКАЖИ ГЛАВНО МЕНИ
+    expiry_text = f"⏳ Истекува: {expiry.strftime('%d.%m.%Y %H:%M')}" if expiry else "♾️ Вечен пристап"
+    keyboard = [
+        [InlineKeyboardButton("💰 Economy", callback_data="economy")],
+        [InlineKeyboardButton("🔓 Unlock Menu", callback_data="unlock")],
+        [InlineKeyboardButton("✨ Chrome Menu", callback_data="chrome")],
+        [InlineKeyboardButton("🚗 Car Unlock", callback_data="car_unlock")],
+        [InlineKeyboardButton("🎨 Copy Vinyls", callback_data="copy_vinyls")],
+        [InlineKeyboardButton("📋 Copy Cars", callback_data="copy_cars")],
+        [InlineKeyboardButton("👤 Clone Account", callback_data="clone_account")],
+        [InlineKeyboardButton("⚙️ Account Settings", callback_data="account_settings")],
+        [InlineKeyboardButton("📈 Max Account", callback_data="max_account")],
+        [InlineKeyboardButton("🚨 Siren Menu", callback_data="siren_menu")],
+        [InlineKeyboardButton("🔧 Bumper Menu", callback_data="bumper_menu")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"🤖 **CPM Premium Bot**\n"
+        f"👤 {user.first_name} (@{username})\n"
+        f"{expiry_text}\n\n"
+        f"Избери опција:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+# --- ФУНКЦИЈА ЗА БАРАЊЕ ПРИСТАП ---
+async def request_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = user.id
+    username = user.username or user.first_name
+    first_name = user.first_name or "No Name"
+    last_name = user.last_name or ""
+    
+    # Провери дали веќе има pending барање
+    db = load_db()
+    pending = db.get("pending", [])
+    
+    if any(p["id"] == user_id for p in pending):
+        await update.message.reply_text(
+            "⏳ **Веќе имате испратено барање за пристап!**\n"
+            "Почекајте администраторот да одговори.",
+            parse_mode="Markdown"
         )
-        keyboard = [
-            [InlineKeyboardButton("$1M", callback_data='inj_1M'), InlineKeyboardButton("$5M", callback_data='inj_5M'), InlineKeyboardButton("$10M", callback_data='inj_10M')],
-            [InlineKeyboardButton("$25M", callback_data='inj_25M'), InlineKeyboardButton("$50M ★", callback_data='inj_50M')],
-            [InlineKeyboardButton("✏️ Custom Amount", callback_data='inj_custom')],
-            [InlineKeyboardButton("◀ Back", callback_data='vnes_uspesen')]
-        ]
-        await query.edit_message_text(text=money_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
+    
+    # Додај во pending листата
+    pending.append({
+        "id": user_id,
+        "username": username,
+        "first_name": first_name,
+        "last_name": last_name,
+        "date": datetime.now().isoformat()
+    })
+    db["pending"] = pending
+    save_db(db)
+    
+    # Испрати потврда на корисникот
+    await update.message.reply_text(
+        "📨 **Барањето за пристап е испратено!**\n"
+        "Администраторот ќе ве одобри наскоро.\n"
+        "Ве молиме почекајте.",
+        parse_mode="Markdown"
+    )
+    
+    # Испрати известување до админот
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=f"🔔 **Ново барање за пристап!**\n"
+             f"👤 Име: {first_name} {last_name}\n"
+             f"🆔 ID: `{user_id}`\n"
+             f"📛 @{username}\n\n"
+             f"Користи:\n"
+             f"/approve {user_id} [traenje]\n"
+             f"/deny {user_id}\n"
+             f"Пример: `/approve {user_id} 30d`\n"
+             f"Опции: `forever`, `30d`, `7d`, `custom`",
+        parse_mode="Markdown"
+    )
 
-    if data == 'meni_coins':
-        coins_text = (
-            "--------------------------------------------------\n"
-            "🪙 **COINS**\n"
-            "--------------------------------------------------\n\n"
-            "Max: 500,000"
+# --- АДМИН КОМАНДИ ---
+async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    db = load_db()
+    pending = db.get("pending", [])
+    users = db.get("users", {})
+    
+    pending_text = f"📥 **Непрочитани барања:** {len(pending)}" if pending else "✅ Нема нови барања"
+    total_users = len(users)
+    
+    keyboard = [
+        [InlineKeyboardButton("📥 Прегледај барања", callback_data="admin_pending")],
+        [InlineKeyboardButton("👥 Листа на корисници", callback_data="admin_users")],
+        [InlineKeyboardButton("🚫 Блокирани", callback_data="admin_banned")],
+    ]
+    
+    await update.message.reply_text(
+        f"👑 **Администраторски панел**\n\n"
+        f"{pending_text}\n"
+        f"👥 Вкупно корисници: {total_users}\n\n"
+        f"Избери опција:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+async def admin_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/approve <user_id> <traenje>"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Само администратор!")
+        return
+    
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "❌ Користи: `/approve USER_ID DURATION`\n"
+            "DURATION: `forever`, `30d`, `7d`, `custom` (на пример `custom 2026-12-31`)",
+            parse_mode="Markdown"
         )
-        keyboard = [
-            [InlineKeyboardButton("100K", callback_data='inj_100k'), InlineKeyboardButton("250K", callback_data='inj_250k'), InlineKeyboardButton("500K ★", callback_data='inj_500k')],
-            [InlineKeyboardButton("✏️ Custom Amount", callback_data='inj_custom')],
-            [InlineKeyboardButton("◀ Back", callback_data='vnes_uspesen')]
-        ]
-        await query.edit_message_text(text=coins_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return
+    
+    user_id = int(args[0])
+    duration = args[1].lower()
+    custom_date = None
+    
+    # Парсирај траење
+    if duration == "forever":
+        expiry = None
+    elif duration == "30d":
+        expiry = datetime.now() + timedelta(days=30)
+    elif duration == "7d":
+        expiry = datetime.now() + timedelta(days=7)
+    elif duration == "custom" and len(args) >= 3:
+        try:
+            custom_date = datetime.strptime(args[2], "%Y-%m-%d")
+            expiry = custom_date
+        except:
+            await update.message.reply_text("❌ Формат за custom: `YYYY-MM-DD` (на пр. 2026-12-31)")
+            return
+    else:
+        await update.message.reply_text("❌ Непознато траење. Користи: forever, 30d, 7d, custom")
+        return
+    
+    # Отстрани од pending
+    db = load_db()
+    pending = db.get("pending", [])
+    db["pending"] = [p for p in pending if p["id"] != user_id]
+    
+    # Додај во users
+    user_info = None
+    for p in pending:
+        if p["id"] == user_id:
+            user_info = p
+            break
+    
+    if not user_info:
+        # Ако нема во pending, провери дали е веќе корисник
+        if str(user_id) in db["users"]:
+            # Ажурирај го постоечкиот
+            db["users"][str(user_id)]["expiry"] = expiry.isoformat() if expiry else None
+            db["users"][str(user_id)]["banned"] = False
+            save_db(db)
+            await update.message.reply_text(f"✅ Пристапот е обновен за {user_id}!")
+            return
+        else:
+            await update.message.reply_text("❌ Корисникот не е пронајден во барањата.")
+            return
+    
+    db["users"][str(user_id)] = {
+        "username": user_info.get("username"),
+        "first_name": user_info.get("first_name"),
+        "last_name": user_info.get("last_name"),
+        "expiry": expiry.isoformat() if expiry else None,
+        "banned": False,
+        "approved_date": datetime.now().isoformat()
+    }
+    save_db(db)
+    
+    # Извести го корисникот
+    expiry_text = "♾️ вечен" if not expiry else f"до {expiry.strftime('%d.%m.%Y %H:%M')}"
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"✅ **Вашето барање е одобрено!**\n"
+             f"🕐 Пристап: {expiry_text}\n\n"
+             f"Сега можете да го користите ботот. Пратете /start за да започнете.",
+        parse_mode="Markdown"
+    )
+    
+    await update.message.reply_text(f"✅ Корисникот {user_id} е одобрен! Пристап {expiry_text}")
 
-    if data == 'meni_features':
-        features_text = (
-            "--------------------------------------------------\n"
-            "⚡ **FEATURES**\n"
-            "--------------------------------------------------\n\n"
-            "Select a feature or UNLOCK ALL:"
+async def admin_deny(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/deny <user_id>"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Само администратор!")
+        return
+    
+    args = context.args
+    if len(args) < 1:
+        await update.message.reply_text("❌ Користи: `/deny USER_ID`", parse_mode="Markdown")
+        return
+    
+    user_id = int(args[0])
+    
+    # Отстрани од pending и users (ако постои)
+    db = load_db()
+    pending = db.get("pending", [])
+    db["pending"] = [p for p in pending if p["id"] != user_id]
+    
+    # Ако е во users, блокирај го
+    if str(user_id) in db["users"]:
+        db["users"][str(user_id)]["banned"] = True
+    save_db(db)
+    
+    # Извести го корисникот
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="❌ **Вашето барање е одбиено!**\nКонтактирајте го администраторот.",
+        parse_mode="Markdown"
+    )
+    
+    await update.message.reply_text(f"❌ Барањето на {user_id} е одбиено.")
+
+async def admin_ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/ban <user_id> - блокирај корисник"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Само администратор!")
+        return
+    
+    args = context.args
+    if len(args) < 1:
+        await update.message.reply_text("❌ Користи: `/ban USER_ID`", parse_mode="Markdown")
+        return
+    
+    user_id = int(args[0])
+    db = load_db()
+    if str(user_id) in db["users"]:
+        db["users"][str(user_id)]["banned"] = True
+        save_db(db)
+        await update.message.reply_text(f"🚫 Корисникот {user_id} е блокиран.")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="🚫 **Вие сте блокирани од администраторот!**",
+            parse_mode="Markdown"
         )
-        keyboard = [
-            [InlineKeyboardButton("🚀 ★ UNLOCK ALL ★ 🚀", callback_data='inj_all')],
-            [InlineKeyboardButton("◀ Back", callback_data='vnes_uspesen')]
-        ]
-        await query.edit_message_text(text=features_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    else:
+        await update.message.reply_text("❌ Корисникот не е пронајден.")
+
+async def admin_unban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/unban <user_id> - одблокирај корисник"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Само администратор!")
         return
+    
+    args = context.args
+    if len(args) < 1:
+        await update.message.reply_text("❌ Користи: `/unban USER_ID`", parse_mode="Markdown")
+        return
+    
+    user_id = int(args[0])
+    db = load_db()
+    if str(user_id) in db["users"]:
+        db["users"][str(user_id)]["banned"] = False
+        save_db(db)
+        await update.message.reply_text(f"✅ Корисникот {user_id} е одблокиран.")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="✅ **Вие сте одблокирани!** Можете повторно да го користите ботот.",
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text("❌ Корисникот не е пронајден.")
 
-    if data.startswith("inj_"):
-        await query.edit_message_text(text="⚠️ **AJHAN INJECTOR v5.0** ⚠️\n\n🌐 Поврзување со CPM Cloud...\n🛡️ Деактивирање на анти-чит систем...\n✅ Успешно аплицирано! Опцијата ќе се појави на вашиот профил за 5-10 минути.")
-        await asyncio.sleep(2)
-        dashboard_text = (
-            "--------------------------------------------------\n"
-            "🗂️ **DASHBOARD**\n"
-            "--------------------------------------------------\n\n"
-            "       **ACCOUNT**       \n"
-            "📧 `{email}`\n"
-            "👤 {first_name}\n\n"
-            "▶ _Select an option below:_"
-        ).format(email=context.user_data.get('cpm_email', 'N/A'), first_name=query.from_user.first_name)
-        keyboard = [
-            [InlineKeyboardButton("💰 Money", callback_data='meni_money'), InlineKeyboardButton("🪙 Coins", callback_data='meni_coins')],
-            [InlineKeyboardButton("⚡ Features", callback_data='meni_features')],
-            [InlineKeyboardButton("🚪 Sign Out", callback_data='cpm_cancel')]
+# --- BUTTON HANDLER (исто како претходно, но со проверка на пристап) ---
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+    
+    # АДМИН КАЛБЕКИ
+    if data == "admin_pending":
+        if not is_admin(user_id):
+            await query.edit_message_text("❌ Не сте администратор!")
+            return
+        db = load_db()
+        pending = db.get("pending", [])
+        if not pending:
+            await query.edit_message_text("✅ Нема нови барања.", parse_mode="Markdown")
+            return
+        text = "📥 **Непрочитани барања:**\n\n"
+        for p in pending[:10]:
+            text += f"👤 {p.get('first_name')} {p.get('last_name')}\n"
+            text += f"🆔 `{p.get('id')}`\n"
+            text += f"📛 @{p.get('username')}\n"
+            text += f"📅 {p.get('date')}\n\n"
+        await query.edit_message_text(text, parse_mode="Markdown")
+        return
+    
+    elif data == "admin_users":
+        if not is_admin(user_id):
+            return
+        db = load_db()
+        users = db.get("users", {})
+        if not users:
+            await query.edit_message_text("📭 Нема регистрирани корисници.", parse_mode="Markdown")
+            return
+        text = "👥 **Листа на корисници:**\n\n"
+        for uid, u in list(users.items())[:10]:
+            expiry = u.get("expiry")
+            expiry_text = "♾️" if not expiry else f"до {expiry.split('T')[0]}"
+            banned = "🚫" if u.get("banned") else "✅"
+            text += f"{banned} `{uid}` - {u.get('first_name')} {expiry_text}\n"
+        await query.edit_message_text(text, parse_mode="Markdown")
+        return
+    
+    elif data == "admin_banned":
+        if not is_admin(user_id):
+            return
+        db = load_db()
+        users = db.get("users", {})
+        banned = [uid for uid, u in users.items() if u.get("banned")]
+        if not banned:
+            await query.edit_message_text("✅ Нема блокирани корисници.", parse_mode="Markdown")
+            return
+        text = "🚫 **Блокирани корисници:**\n"
+        for uid in banned:
+            u = users[uid]
+            text += f"`{uid}` - {u.get('first_name')}\n"
+        await query.edit_message_text(text, parse_mode="Markdown")
+        return
+    
+    # --- ПРОВЕРКА НА ПРИСТАП ЗА ОСТАНАТИТЕ ФУНКЦИИ ---
+    has_access, status, expiry = check_access(user_id)
+    if not has_access:
+        if status == "banned":
+            await query.edit_message_text("🚫 Вие сте блокирани!", parse_mode="Markdown")
+        elif status == "expired":
+            await query.edit_message_text("⏰ Вашиот пристап истече!", parse_mode="Markdown")
+        else:
+            await query.edit_message_text("❌ Немате пристап. Пратете /start за да побарате дозвола.", parse_mode="Markdown")
+        return
+    
+    # --- ОСТАНАТИТЕ ФУНКЦИИ (исти како претходно) ---
+    if data == "economy":
+        await query.edit_message_text(
+            "💰 **Economy**\n"
+            "Испрати:\n"
+            "`setcoins 1000` - за Coins\n"
+            "`setmoney 5000` - за Money",
+            parse_mode="Markdown"
+        )
+        context.user_data["awaiting"] = "economy"
+    
+    elif data == "unlock":
+        kb = [[InlineKeyboardButton("🔓 Unlock All (1 клик)", callback_data="unlock_all")],
+              [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]]
+        await query.edit_message_text("🔓 **Unlock Menu**", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    
+    elif data == "unlock_all":
+        await query.edit_message_text(cpm_unlock_all(), parse_mode="Markdown")
+    
+    elif data == "chrome":
+        kb = [
+            [InlineKeyboardButton("🚗 Chrome Car", callback_data="chrome_car")],
+            [InlineKeyboardButton("🪟 Chrome Windows", callback_data="chrome_windows")],
+            [InlineKeyboardButton("💡 Chrome Headlights", callback_data="chrome_headlights")],
+            [InlineKeyboardButton("⚙️ Chrome Wheels", callback_data="chrome_wheels")],
+            [InlineKeyboardButton("✨ Full Chrome", callback_data="chrome_full")],
+            [InlineKeyboardButton("🔄 Reset Chrome", callback_data="chrome_reset")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
         ]
-        try: 
-            await query.message.reply_text(text=dashboard_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        except Exception: 
-            pass
+        await query.edit_message_text("✨ **Chrome Menu**", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    
+    elif data.startswith("chrome_"):
+        part = data.replace("chrome_", "").replace("_", " ").title()
+        await query.edit_message_text(f"✅ {part} применет", parse_mode="Markdown")
+    
+    elif data == "car_unlock":
+        await query.edit_message_text(
+            "🚗 **Car Unlock**\n"
+            "Испрати:\n"
+            "`unlockcar 123` - за специфичен автомобил\n"
+            "`unlockallcars` - за сите",
+            parse_mode="Markdown"
+        )
+        context.user_data["awaiting"] = "car_unlock"
+    
+    elif data == "copy_vinyls":
+        await query.edit_message_text(
+            "🎨 **Copy Vinyls**\n"
+            "Испрати:\n"
+            "`copyvinyl FROM_CAR TO_CAR1,TO_CAR2`\n"
+            "`copyvinylall FROM_CAR` - за сите",
+            parse_mode="Markdown"
+        )
+        context.user_data["awaiting"] = "copy_vinyls"
+    
+    elif data == "copy_cars":
+        await query.edit_message_text(
+            "📋 **Copy Cars**\n"
+            "Испрати:\n"
+            "`copycar FROM_CAR TO_ACCOUNT`\n"
+            "`copyallcars TO_ACCOUNT`",
+            parse_mode="Markdown"
+        )
+        context.user_data["awaiting"] = "copy_cars"
+    
+    elif data == "clone_account":
+        await query.edit_message_text(
+            "👤 **Clone Account**\n"
+            "Испрати:\n"
+            "`clone TARGET_ACCOUNT_ID`",
+            parse_mode="Markdown"
+        )
+        context.user_data["awaiting"] = "clone_account"
+    
+    elif data == "account_settings":
+        kb = [
+            [InlineKeyboardButton("📛 Change Name", callback_data="acc_name")],
+            [InlineKeyboardButton("🆔 Change CPM ID", callback_data="acc_cpmid")],
+            [InlineKeyboardButton("📧 Change Email", callback_data="acc_email")],
+            [InlineKeyboardButton("🔑 Change Password", callback_data="acc_password")],
+            [InlineKeyboardButton("🏁 Set Wins/Losses", callback_data="acc_wins")],
+            [InlineKeyboardButton("🔢 Copy Number Plates", callback_data="acc_plates")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
+        ]
+        await query.edit_message_text("⚙️ **Account Settings**", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    
+    elif data.startswith("acc_"):
+        await query.edit_message_text(f"⚙️ {data.replace('acc_', '').title()} - испрати нова вредност", parse_mode="Markdown")
+        context.user_data["awaiting"] = data
+    
+    elif data == "max_account":
+        await query.edit_message_text(
+            "📈 **Max Account**\n"
+            "✅ Сè отклучено\n"
+            "W16, Smoke, Horns, No Damage, Fuel, Animations, Wheels, Houses, Сите автомобили",
+            parse_mode="Markdown"
+        )
+    
+    elif data == "siren_menu":
+        await query.edit_message_text(
+            "🚨 **Siren Menu**\n"
+            "Испрати:\n"
+            "`siren CAR_ID`\n"
+            "`sirenall` - за сите",
+            parse_mode="Markdown"
+        )
+        context.user_data["awaiting"] = "siren"
+    
+    elif data == "bumper_menu":
+        kb = [
+            [InlineKeyboardButton("🔧 Remove Front", callback_data="bumper_front")],
+            [InlineKeyboardButton("🔧 Remove Rear", callback_data="bumper_rear")],
+            [InlineKeyboardButton("🔧 Remove Both", callback_data="bumper_both")],
+            [InlineKeyboardButton("🔧 Remove All Cars", callback_data="bumper_all")],
+            [InlineKeyboardButton("🔧 Remove Specific Car", callback_data="bumper_specific")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="back_main")]
+        ]
+        await query.edit_message_text("🔧 **Bumper Menu**", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    
+    elif data.startswith("bumper_"):
+        if data == "bumper_all":
+            await query.edit_message_text("🔧 Браници отстранети од сите автомобили", parse_mode="Markdown")
+        elif data == "bumper_specific":
+            await query.edit_message_text("Испрати ID на автомобил:\n`removebumper 456`", parse_mode="Markdown")
+            context.user_data["awaiting"] = "bumper_specific"
+        else:
+            await query.edit_message_text("🔧 Браници отстранети", parse_mode="Markdown")
+    
+    elif data == "back_main":
+        # Рестартирај го менито
+        await start(update, context)
 
-# ===== ПАРКИНГ КОМАНДИ =====
-async def reserve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- TEXT HANDLER (исто со проверка на пристап) ---
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    car_number = get_user_car(user_id)
+    user_text = update.message.text.strip()
     
-    if not car_number:
-        await update.message.reply_text("⚠️ Прво внеси кола!\nКористи: /setcar [број]")
+    # Провери пристап
+    has_access, status, _ = check_access(user_id)
+    if not has_access:
+        await update.message.reply_text("❌ Немате пристап до оваа функција. Пратете /start за да побарате дозвола.")
         return
     
-    try:
-        spot = int(context.args[0])
-        hours = float(context.args[1]) if len(context.args) > 1 else 1
-    except:
-        await update.message.reply_text("❌ Грешен формат!\nКористи: /reserve [број] [часови]\nПример: /reserve 5 2")
-        return
+    awaiting = context.user_data.get("awaiting", "")
     
-    free = get_free_spots()
-    if spot not in free:
-        await update.message.reply_text(f"❌ Место {spot} не е слободно!")
-        return
+    # ECONOMY
+    if awaiting == "economy":
+        if user_text.startswith("setcoins"):
+            try:
+                amt = int(user_text.split()[1])
+                await update.message.reply_text(cpm_set_coins(amt))
+            except:
+                await update.message.reply_text("❌ Испрати: `setcoins 1000`", parse_mode="Markdown")
+        elif user_text.startswith("setmoney"):
+            try:
+                amt = int(user_text.split()[1])
+                await update.message.reply_text(cpm_set_money(amt))
+            except:
+                await update.message.reply_text("❌ Испрати: `setmoney 5000`", parse_mode="Markdown")
+        else:
+            await update.message.reply_text("❌ Користи `setcoins` или `setmoney`", parse_mode="Markdown")
     
-    if hours > 24:
-        await update.message.reply_text("❌ Максимум 24 часа!")
-        return
+    # CAR UNLOCK
+    elif awaiting == "car_unlock":
+        if user_text.startswith("unlockcar"):
+            car_id = user_text.replace("unlockcar", "").strip()
+            await update.message.reply_text(cpm_unlock_car(car_id))
+        elif user_text.startswith("unlockallcars"):
+            await update.message.reply_text("✅ Сите автомобили отклучени")
+        else:
+            await update.message.reply_text("❌ Користи `unlockcar ID` или `unlockallcars`", parse_mode="Markdown")
     
-    if occupy_spot(spot, user_id, car_number, hours):
-        await update.message.reply_text(f"✅ Резервирано место {spot} за {hours} часа!\nКола: {car_number}")
+    # COPY VINYLS
+    elif awaiting == "copy_vinyls":
+        if user_text.startswith("copyvinyl"):
+            parts = user_text.split()
+            if len(parts) >= 3:
+                await update.message.reply_text(f"🎨 Винили копирани од {parts[1]} во {parts[2]}")
+            else:
+                await update.message.reply_text("❌ Формат: `copyvinyl FROM_CAR TO_CAR1,TO_CAR2`", parse_mode="Markdown")
+        elif user_text.startswith("copyvinylall"):
+            await update.message.reply_text("🎨 Винили копирани на сите автомобили")
+    
+    # COPY CARS
+    elif awaiting == "copy_cars":
+        if user_text.startswith("copycar"):
+            parts = user_text.split()
+            if len(parts) >= 3:
+                await update.message.reply_text(f"📋 Автомобил {parts[1]} копиран во {parts[2]}")
+            else:
+                await update.message.reply_text("❌ Формат: `copycar FROM_CAR TO_ACCOUNT`", parse_mode="Markdown")
+        elif user_text.startswith("copyallcars"):
+            acc = user_text.replace("copyallcars", "").strip()
+            await update.message.reply_text(f"📋 Сите автомобили копирани во {acc}")
+    
+    # CLONE ACCOUNT
+    elif awaiting == "clone_account":
+        if user_text.startswith("clone"):
+            target = user_text.replace("clone", "").strip()
+            await update.message.reply_text(f"👤 Акаунт клониран во {target}")
+    
+    # SIREN
+    elif awaiting == "siren":
+        if user_text.startswith("siren"):
+            car_id = user_text.replace("siren", "").strip()
+            await update.message.reply_text(f"🚨 Сирена поставена на автомобил {car_id}")
+        elif user_text.startswith("sirenall"):
+            await update.message.reply_text("🚨 Сирени на сите автомобили")
+    
+    # BUMPER SPECIFIC
+    elif awaiting == "bumper_specific":
+        if user_text.startswith("removebumper"):
+            car_id = user_text.replace("removebumper", "").strip()
+            await update.message.reply_text(f"🔧 Браници отстранети од автомобил {car_id}")
+    
+    # ACCOUNT SETTINGS
+    elif awaiting.startswith("acc_"):
+        await update.message.reply_text(f"✅ {awaiting} променето во: {user_text}")
+    
     else:
-        await update.message.reply_text("❌ Грешка при резервација!")
-
-async def free(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        res_id = int(context.args[0])
-    except:
-        await update.message.reply_text("❌ Користи: /free [ID]")
-        return
+        await update.message.reply_text("❌ Непозната команда. Користи /start")
     
-    if free_spot(res_id):
-        await update.message.reply_text(f"✅ Ослободена резервација {res_id}!")
-    else:
-        await update.message.reply_text("❌ Грешка при ослободување!")
+    context.user_data["awaiting"] = ""
 
-async def setcar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ Користи: /setcar [број на кола]")
-        return
-    car = context.args[0].upper()
-    update_car(update.effective_user.id, car)
-    await update.message.reply_text(f"✅ Кола {car} е регистрирана!")
-
-async def myres(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    res = get_active_reservations(update.effective_user.id)
-    if res:
-        text = "📋 Твоите резервации:\n\n"
-        for r in res:
-            text += f"🆔 {r[0]} | Место {r[2]} | {r[3]}\n"
-            text += f"⏰ До: {r[5][:16]}\n\n"
-    else:
-        text = "Немаш резервации."
-    await update.message.reply_text(text)
-
-async def spots(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    free = get_free_spots()
-    if free:
-        await update.message.reply_text(f"🟢 Слободни места: {', '.join(map(str, free))}")
-    else:
-        await update.message.reply_text("🔴 Нема слободни места!")
-
-# ===== MAIN =====
+# --- ГЛАВНА ФУНКЦИЈА ---
 def main():
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = Application.builder().token(TOKEN).build()
     
     # Команди
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("reserve", reserve))
-    application.add_handler(CommandHandler("free", free))
-    application.add_handler(CommandHandler("setcar", setcar))
-    application.add_handler(CommandHandler("myres", myres))
-    application.add_handler(CommandHandler("spots", spots))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("approve", admin_approve))
+    app.add_handler(CommandHandler("deny", admin_deny))
+    app.add_handler(CommandHandler("ban", admin_ban))
+    app.add_handler(CommandHandler("unban", admin_unban))
     
-    # Копчиња
-    application.add_handler(CallbackQueryHandler(obraboti_klikovi))
+    # Handler-и
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     
-    # Стартувај
-    logger.info("🚀 Ботот стартува...")
-    application.run_polling()
+    # Render webhook
+    port = int(os.environ.get("PORT", 8443))
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'localhost')}/webhook"
+    )
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
