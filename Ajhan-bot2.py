@@ -634,34 +634,24 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     context.user_data["awaiting"] = ""
 
-# --- ГЛАВНА ФУНКЦИЈА (ПОПРАВЕНА ЗА RENDER) ---
+# --- ГЛАВНА ФУНКЦИЈА (ЗА RENDER BACKGROUND WORKER) ---
 def main():
     app = Application.builder().token(TOKEN).build()
     
+    # Команди
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("approve", admin_approve))
     app.add_handler(CommandHandler("deny", admin_deny))
     app.add_handler(CommandHandler("ban", admin_ban))
     app.add_handler(CommandHandler("unban", admin_unban))
     
+    # Handler-и
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     
-    port = int(os.environ.get("PORT", 8443))
-    
-    # ⭐ КЛУЧНО: Земете го Render URL-то
-    render_url = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-    if render_url:
-        webhook_url = f"https://{render_url}/webhook"
-        print(f"✅ Ботот стартува на webhook: {webhook_url}")
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            webhook_url=webhook_url
-        )
-    else:
-        print("⚠️ Локален режим (polling)")
-        app.run_polling()
+    # ⭐ ЗА BACKGROUND WORKER - КОРИСТИ ПОЛЛИНГ (НЕ WEBHOOK!)
+    print("🤖 Ботот стартува во POLLING режим (Background Worker)...")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
