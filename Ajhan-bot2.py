@@ -2,14 +2,12 @@ import os
 import json
 import logging
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-# Заштита на токен
-load_dotenv()
-TOKEN = os.getenv("BOT_TOKEN") or "8674559116:AAFZfZpBUsHXDowKuC1_UzDeSt6CvdV4"
-ADMIN_ID = int(os.getenv("ADMIN_ID", 8694942406))
+# ⭐ Токенот се чита од Render Environment Variables (или користи го новиот)
+TOKEN = os.environ.get("BOT_TOKEN", "8674559116:AAGY9DWMI7nSQd_z8sYMUpKvc-SYI3CRBGW")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 8694942406))
 
 # Логирање
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -63,6 +61,9 @@ def cpm_set_money(amount: int) -> str:
 
 def cpm_unlock_all() -> str:
     return "✅ Отклучено: W16, Smoke, Horns, No Damage, Unlimited Fuel, Animations, Wheels, Houses"
+
+def cpm_chrome_all() -> str:
+    return "✅ Хром на сите делови"
 
 def cpm_unlock_car(car_id: str) -> str:
     return f"🚗 Отклучен автомобил со ID: {car_id}"
